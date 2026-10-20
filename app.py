@@ -209,7 +209,7 @@ st.sidebar.markdown('---')
 st.sidebar.header('Filtros de Consulta General')
 
 socios_disp = ['Todos'] + sorted([x for x in df_raw['ONG'].dropna().unique() if x != 'nan'])
-socio_sel = st.sidebar.selectbox('Socio / ONG:', socios_disp)
+socio_sel = st.sidebar.selectbox('Socio / Organización:', socios_disp)
 
 estados_disp = ['Todos'] + sorted([x for x in df_raw['Estado'].dropna().unique() if x != 'nan'])
 estado_sel = st.sidebar.selectbox('Estado:', estados_disp)
@@ -248,12 +248,12 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA 13 = ALCANZADOS, COLUMNA 14 = META)
+# 5. SEGUIMIENTO DE ACTIVIDADES (METAS OFICIALES VS ALCANZADOS CON FILTRO DE ORGANIZACIÓN)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
+def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
     try:
         io_copy = io.BytesIO(file_bytes_io.getvalue())
         xls = pd.ExcelFile(io_copy)
@@ -261,44 +261,59 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
             io_copy2 = io.BytesIO(file_bytes_io.getvalue())
             df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
             
+            # También leemos el detalle completo para calcular alcanzados filtrados en vivo
+            df_detalle = cargar_datos_crudos(file_bytes_io)
+            if org_seleccionada != 'Todos':
+                df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
+            if estado_seleccionado != 'Todos':
+                df_detalle = df_detalle[df_detalle['Estado'] == estado_seleccionado]
+            if muni_seleccionado != 'Todos':
+                df_detalle = df_detalle[df_detalle['Municipio'] == muni_seleccionado]
+            if sector_seleccionado != 'Todos':
+                df_detalle = df_detalle[df_detalle['Sector'] == sector_seleccionado]
+
+            # Agrupar alcanzados reales desde el detalle filtrado
+            alcanzados_por_act = df_detalle.groupby('Actividad_Cod').size().to_dict()
+
             datos_actividades = []
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    alcanzado_val = r.iloc[13] if len(r) > 13 else 0
                     meta_val = r.iloc[14] if len(r) > 14 else 0
                     
-                    if pd.notnull(alcanzado_val):
-                        try:
-                            a_int = int(float(alcanzado_val))
-                            m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
-                            pct = (a_int / m_int * 100) if m_int > 0 else 0.0
-                            
-                            sec = 'Protección'
-                            if 'R2' in fila_txt: sec = 'Salud'
-                            elif 'R3' in fila_txt: sec = 'Nutrición'
-                            elif 'R4' in fila_txt: sec = 'WASH'
-                            elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
-                            
-                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
-                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
-                            
-                            datos_actividades.append({
-                                'Sector': sec,
-                                'Codigo_Corto': codigo_corto,
-                                'Actividad_Completa': fila_txt.strip(),
-                                'Meta de la Actividad': m_int,
-                                'Alcanzados y Avance': a_int,
-                                '% Avance Socio': round(pct, 1)
-                            })
-                        except:
-                            pass
+                    try:
+                        m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
+                        
+                        m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
+                        codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
+                        
+                        # Tomar el alcanzado filtrado del detalle de Kobo
+                        a_int = int(alcanzados_por_act.get(codigo_corto, 0))
+                        
+                        pct = (a_int / m_int * 100) if m_int > 0 else 0.0
+                        
+                        sec = 'Protección'
+                        if 'R2' in fila_txt: sec = 'Salud'
+                        elif 'R3' in fila_txt: sec = 'Nutrición'
+                        elif 'R4' in fila_txt: sec = 'WASH'
+                        elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
+                        
+                        datos_actividades.append({
+                            'Sector': sec,
+                            'Codigo_Corto': codigo_corto,
+                            'Actividad_Completa': fila_txt.strip(),
+                            'Meta de la Actividad': m_int,
+                            'Alcanzados y Avance': a_int,
+                            '% Avance Socio': round(pct, 1)
+                        })
+                    except:
+                        pass
             return pd.DataFrame(datos_actividades)
     except Exception as e:
         pass
     return pd.DataFrame()
 
-df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_bytes)
+df_reporte_act = cargar_metas_y_alcanzados_filtrados(excel_bytes, socio_sel, estado_sel, muni_sel, sector_sel)
 
 if not df_reporte_act.empty:
     df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
@@ -346,6 +361,7 @@ if not df_reporte_act.empty:
     df_melted['Etiqueta'] = [obtener_etiqueta(r) for _, r in df_melted.iterrows()]
 
     orden_codigos = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)['Codigo_Corto'].tolist()
+    max_valor_eje = float(df_reporte_act['Meta de la Actividad'].max()) * 1.15
 
     fig_act = px.bar(
         df_melted,
@@ -363,16 +379,16 @@ if not df_reporte_act.empty:
             'Alcanzados y Avance': COLOR_ROSADO_AAP  # Violeta / Rosado orquídea (#D89FE3)
         },
         height=520,
-        title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
+        title=f'Resultados por Actividad (Metas Oficiales vs Alcanzados) {f"| Organización: {socio_sel}" if socio_sel != "Todos" else "| Consorcio General"}'
     )
 
     fig_act.update_traces(textposition='outside')
     fig_act.update_layout(
         font=font_layout,
-        xaxis_title='Servicios / Personas',
-        yaxis_title='Código de Actividad',
+        xaxis=dict(title='Servicios / Personas', range=[0, max_valor_eje]),
+        yaxis=dict(title='Código de Actividad'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=20, r=60, t=50, b=30),
+        margin=dict(l=20, r=80, t=50, b=30),
         uniformtext_minsize=9, 
         uniformtext_mode='hide'
     )
