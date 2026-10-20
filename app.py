@@ -352,7 +352,7 @@ for cod_act, datos in METAS_ACTIVIDADES.items():
 df_reporte_act = pd.DataFrame(filas_reporte)
 
 if not df_reporte_act.empty:
-    # Ordenamos de menor a mayor para que en el gráfico horizontal el mayor quede arriba
+    # Ordenamos de menor a mayor por Meta Socio para que al mostrarse en barra horizontal el mayor quede arriba
     df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
 
     st.dataframe(
@@ -380,9 +380,10 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # Gráfico de barras horizontal dual ordenado y con color violeta/rosado AAP
-    fig_act_bars = make_subplots(specs=[[{'secondary_y': True}]])
+    # GRÁFICO DE BARRAS HORIZONTALES (METAS Y ALCANZADOS EN BARRAS SEPARADAS Y ORDENADAS)
+    fig_act_bars = go.Figure()
 
+    # Barra 1: Meta de la Actividad (Azul Marino)
     fig_act_bars.add_trace(
         go.Bar(
             y=df_reporte_act['Actividad'],
@@ -392,39 +393,35 @@ if not df_reporte_act.empty:
             textposition='auto',
             orientation='h',
             marker_color='#08327D',
-        ),
-        secondary_y=False,
+        )
     )
 
+    # Barra 2: Alcanzados / Avance (Violeta / Rosado AAP)
     etiquetas_moradas = df_reporte_act.apply(
-        lambda r: f"{r['% Avance Socio']:.1f}% ({r['Alcanzados']:,})", axis=1
+        lambda r: f"{r['Alcanzados']:,} ({r['% Avance Socio']:.1f}%)", axis=1
     )
 
     fig_act_bars.add_trace(
         go.Bar(
             y=df_reporte_act['Actividad'],
-            x=df_reporte_act['% Avance Socio'],
-            name='% Avance y Alcanzados',
+            x=df_reporte_act['Alcanzados'],
+            name='Alcanzados y Avance',
             text=etiquetas_moradas,
             textposition='auto',
             orientation='h',
             marker_color=COLOR_ROSADO_AAP,  # Color violeta / rosado orquídea (#D89FE3)
-        ),
-        secondary_y=True,
+        )
     )
 
     fig_act_bars.update_layout(
         title='Resultados por Actividad (Ordenado de Mayor a Menor)',
         barmode='group',
         yaxis_title='Actividad',
+        xaxis_title='Servicios / Personas',
         font=font_layout,
         height=550,
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
     )
-
-    fig_act_bars.update_xaxes(title_text='Meta (Servicios / Personas)')
-    fig_act_bars.update_yaxes(title_text='Actividad', secondary_y=False)
-    fig_act_bars.update_yaxes(title=None, showticklabels=False, secondary_y=True)
 
     st.plotly_chart(fig_act_bars, width='stretch')
 else:
