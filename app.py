@@ -29,7 +29,7 @@ PALETA_INTEGRAS = [
 # 1. CONFIGURACIÓN DE PÁGINA Y ESTILOS (CSS)
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title='Tablero por Municipios y Sectores | Consorcio Íntegras',
+    page_title='Tablero Consorcio Íntegras | COOPI',
     layout='wide',
     initial_sidebar_state='expanded',
 )
@@ -68,7 +68,7 @@ col_header_title, col_header_logo = st.columns([3, 1])
 
 with col_header_title:
     st.markdown(
-        "<h1 class='titulo-principal'>Monitoreo por Municipios y Sectores - Consorcio Íntegras</h1>",
+        "<h1 class='titulo-principal'>Tablero de Monitoreo - Consorcio Íntegras</h1>",
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -86,26 +86,26 @@ st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 46122
 
-# Coordenadas referenciales de municipios de intervención para el mapa
+# Coordenadas geográficas de municipios de intervención
 COORDENADAS_MUNICIPIOS = {
     'Libertador': [10.5000, -66.9167],
     'Caroní': [8.2833, -62.7167],
-    'Angostura': [7.5333, -63.8833],
+    'Angostura del Orinoco': [7.5333, -63.8833],
     'Pedernales': [9.9667, -62.2500],
     'Tucupita': [9.0622, -62.0531],
     'Paz Castillo': [10.2167, -66.6667],
     'Sucre': [10.4833, -66.8167],
     'Urdaneta': [10.1500, -66.8833],
     'Arismendi': [10.7167, -62.5167],
-    'Bermúdez': [10.6333, -63.2500],
-    'Cruz Salmerón Acosta': [10.6167, -64.2000],
+    'Bermudez': [10.6333, -63.2500],
+    'Cruz Salmeron Acosta': [10.6167, -64.2000],
     'Vargas': [10.6000, -66.9333],
 }
 
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA DE DATOS DESDE EXCEL (CON DETECCIÓN DE ENCABEZADO)
+# 2. CARGA INTELIGENTE DE DATOS DESDE EXCEL
 # -----------------------------------------------------------------------------
 st.sidebar.header('Carga de Datos (Excel)')
 uploaded_file = st.sidebar.file_uploader(
@@ -174,11 +174,20 @@ df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otr
 df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
 df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
 
+def calcular_grupo(row):
+    e, s = row['Edad'], row['Sexo']
+    if e < 18:
+        return 'Niña' if s in ['Femenino', 'Mujer'] else 'Niño'
+    else:
+        return 'Mujer' if s in ['Femenino', 'Mujer'] else 'Hombre'
+
+df_raw['Grupo_Demografico'] = df_raw.apply(calcular_grupo, axis=1)
+
 # -----------------------------------------------------------------------------
 # 3. FILTROS LATERALES
 # -----------------------------------------------------------------------------
 st.sidebar.markdown('---')
-st.sidebar.header('Filtros Geográficos y Sectoriales')
+st.sidebar.header('Filtros de Consulta General')
 
 socios_disp = ['Todos'] + sorted([x for x in df_raw['ONG'].dropna().unique() if x != 'nan'])
 socio_sel = st.sidebar.selectbox('Socio / ONG:', socios_disp)
@@ -213,114 +222,107 @@ total_unicos = len(df_unicos)
 pct_meta = (total_unicos / META_PARTICIPANTES_UNICOS) * 100
 
 col1, col2, col3 = st.columns(3)
-col1.metric('Total Servicios Brindados', f'{total_servicios:,}')
-col2.metric('Población Alcanzada (Únicos)', f'{total_unicos:,}')
-col3.metric('% Alcance de la Meta Consorcio', f'{pct_meta:.2f}%')
+col1.metric('Total de Servicios a Participantes', f'{total_servicios:,}')
+col2.metric('Total Participantes Únicos', f'{total_unicos:,}')
+col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SECCIÓN PRINCIPAL: MUNICIPIOS, SECTORES Y POBLACIÓN ALCANZADA
+# 5. GRÁFICOS: TORTA (DONUT) Y SECTOR
 # -----------------------------------------------------------------------------
-st.subheader('Desglose Geográfico y Sectorial de la Población Alcanzada')
+g1, g2 = st.columns(2)
 
-col_muni_chart, col_sec_chart = st.columns(2)
+with g1:
+    st.subheader('Desglose por Sexo y Rango Etario')
+    if total_unicos > 0:
+        df_demo = df_unicos.groupby('Grupo_Demografico').size().reset_index(name='Cantidad')
+        fig_pie = px.pie(
+            df_demo, values='Cantidad', names='Grupo_Demografico', hole=0.4,
+            title='Participantes Únicos por Rango Etario y Sexo',
+            color_discrete_sequence=PALETA_INTEGRAS
+        )
+        fig_pie.update_traces(textinfo='label+value+percent')
+        fig_pie.update_layout(showlegend=True, font=font_layout)
+        st.plotly_chart(fig_pie, width='stretch')
 
-with col_muni_chart:
-    st.markdown('### Población Única por Municipio')
+with g2:
+    st.subheader('Participantes Únicos por Sector')
+    if total_unicos > 0:
+        df_sec = df_unicos.groupby('Sector').size().reset_index(name='Unicos')
+        df_sec['Porcentaje'] = (df_sec['Unicos'] / total_unicos) * 100
+        df_sec['Etiqueta'] = df_sec.apply(lambda r: f"{r['Unicos']:,} ({r['Porcentaje']:.1f}%)", axis=1)
+        
+        fig_bar = px.bar(
+            df_sec, x='Sector', y='Unicos', color='Sector',
+            text='Etiqueta', title='Distribución por Sector de Implementación',
+            color_discrete_sequence=PALETA_INTEGRAS
+        )
+        fig_bar.update_traces(textposition='outside')
+        fig_bar.update_layout(showlegend=False, font=font_layout)
+        st.plotly_chart(fig_bar, width='stretch')
+
+st.markdown('---')
+
+# -----------------------------------------------------------------------------
+# 6. MUNICIPIOS ORDENADOS Y MAPA INTERACTIVO
+# -----------------------------------------------------------------------------
+m1, m2 = st.columns([1, 1])
+
+with m1:
+    st.subheader('Población Única por Municipio (Ordenado)')
     if total_unicos > 0:
         df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
+        # Ordenamos de menor a mayor para que en el gráfico de barras horizontales el mayor quede arriba
         df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
         
         fig_muni = px.bar(
             df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
-            orientation='h', text='Participantes_Unicos', height=420,
+            orientation='h', text='Participantes_Unicos', height=450,
             color_discrete_sequence=PALETA_INTEGRAS
         )
         fig_muni.update_traces(textposition='outside')
         fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
         st.plotly_chart(fig_muni, width='stretch')
-    else:
-        st.info('No hay datos para los filtros seleccionados.')
 
-with col_sec_chart:
-    st.markdown('### Población Alcanzada por Sector (Resultado)')
+with m2:
+    st.subheader('Mapa de Cobertura Territorial')
+    
+    mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='CartoDB positron')
+    
     if total_unicos > 0:
-        df_sec = df_unicos.groupby('Sector').size().reset_index(name='Participantes_Unicos')
-        df_sec['Porcentaje'] = (df_sec['Participantes_Unicos'] / total_unicos) * 100
-        df_sec['Etiqueta'] = df_sec.apply(lambda r: f"{r['Participantes_Unicos']:,} ({r['Porcentaje']:.1f}%)", axis=1)
+        muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(
+            Participantes_Unicos=('ID_Unico', 'nunique'),
+            Total_Servicios=('ID_Unico', 'count')
+        ).reset_index()
         
-        fig_sec = px.bar(
-            df_sec, x='Sector', y='Participantes_Unicos', color='Sector',
-            text='Etiqueta', height=420, color_discrete_sequence=PALETA_INTEGRAS
-        )
-        fig_sec.update_traces(textposition='outside')
-        fig_sec.update_layout(showlegend=False, font=font_layout, xaxis_title='Sector', yaxis_title='Participantes Únicos')
-        st.plotly_chart(fig_sec, width='stretch')
-    else:
-        st.info('No hay datos para los filtros seleccionados.')
+        for _, m_row in muni_mapa.iterrows():
+            est = m_row['Estado']
+            mun = m_row['Municipio']
+            unicos = m_row['Participantes_Unicos']
+            servicios = m_row['Total_Servicios']
+            
+            coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
+            
+            popup_html = f"""
+            <div style='font-family: Quicksand; font-size: 13px; width: 190px;'>
+                <h4 style='color: {COLOR_AGUAMARINA}; margin-bottom: 5px;'>{mun}</h4>
+                <b>Estado:</b> {est}<br>
+                <b>Participantes Únicos:</b> {unicos:,}<br>
+                <b>Total Servicios:</b> {servicios:,}
+            </div>
+            """
+            
+            folium.CircleMarker(
+                location=coords,
+                radius=min(unicos * 2, 22) + 6,
+                popup=folium.Popup(popup_html, max_width=220),
+                color=COLOR_AGUAMARINA,
+                fill=True,
+                fill_color=COLOR_AGUAMARINA,
+                fill_opacity=0.7,
+            ).add_to(mapa)
+            
+    st_folium(mapa, width=500, height=430)
 
 st.markdown('---')
-
-# -----------------------------------------------------------------------------
-# 6. MAPA DE COBERTURA GEOGRÁFICA
-# -----------------------------------------------------------------------------
-st.subheader('Mapa de Cobertura y Concentración Territorial')
-
-mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='CartoDB positron')
-
-if total_unicos > 0:
-    muni_totales = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Total_Unicos')
-    for _, m_row in muni_totales.iterrows():
-        est, mun, tot = m_row['Estado'], m_row['Municipio'], m_row['Total_Unicos']
-        coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
-        
-        popup_html = f"""
-        <div style='font-family: Quicksand; font-size: 12px; width: 180px;'>
-            <h4 style='color: {COLOR_AGUAMARINA}; margin-bottom: 4px;'>{mun}</h4>
-            <b>Estado:</b> {est}<br>
-            <b>Población Única:</b> {tot:,} personas
-        </div>
-        """
-        
-        folium.CircleMarker(
-            location=coords,
-            radius=min(tot * 2, 22) + 6,
-            popup=folium.Popup(popup_html, max_width=200),
-            color=COLOR_AGUAMARINA,
-            fill=True,
-            fill_color=COLOR_AGUAMARINA,
-            fill_opacity=0.7,
-        ).add_to(mapa)
-
-st_folium(mapa, width='stretch', height=450)
-
-st.markdown('---')
-
-# -----------------------------------------------------------------------------
-# 7. TABLA RESUMEN CRUZADA (MUNICIPIO X SECTOR) Y DESCARGA
-# -----------------------------------------------------------------------------
-st.subheader('Matriz Resumen: Municipio x Sector (Población Alcanzada)')
-
-if total_unicos > 0:
-    df_matriz = df_unicos.pivot_table(
-        index=['Estado', 'Municipio'],
-        columns='Sector',
-        values='ID_Unico',
-        aggfunc='nunique',
-        fill_value=0
-    ).reset_index()
-
-    st.dataframe(df_matriz, width='stretch', hide_index=True)
-
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_matriz.to_excel(writer, index=False, sheet_name='Matriz_Municipio_Sector')
-    buffer.seek(0)
-
-    st.download_button(
-        label='📥 Descargar Matriz Municipio x Sector en Excel',
-        data=buffer,
-        file_name='Matriz_Municipio_Sector_Integras.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    )
