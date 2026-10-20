@@ -151,7 +151,7 @@ def cargar_datos_crudos(file_bytes_io):
         df = pd.read_excel(io_copy3, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Mapeo robusto dentro de la carga base
+        # Mapeo robusto de columnas
         def buscar_col(posibles):
             for col in df.columns:
                 if any(p.lower() in str(col).lower() for p in posibles):
@@ -162,7 +162,16 @@ def cargar_datos_crudos(file_bytes_io):
         c_estado = buscar_col(['estado'])
         c_muni = buscar_col(['municipio'])
         c_sector = buscar_col(['resultado', 'sector'])
-        c_act = buscar_col(['actividad'])
+        
+        # Búsqueda exacta de la columna de actividad (evitando confundirla con la fecha)
+        c_act = None
+        for col in df.columns:
+            if 'actividad' in str(col).lower() and 'fecha' not in str(col).lower():
+                c_act = col
+                break
+        if not c_act:
+            c_act = buscar_col(['actividad'])
+
         c_sexo = buscar_col(['sexo'])
         c_edad = buscar_col(['edad_calculada', 'edad'])
         c_id = buscar_col(['codigoid', 'id'])
