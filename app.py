@@ -248,7 +248,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA N = RESULTADO, COLUMNA O = META)
+# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA 13 = ALCANZADOS, COLUMNA 14 = META)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -265,7 +265,6 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    # Columna N (índice 13) = Total general / Resultado, Columna O (índice 14) = Meta
                     alcanzado_val = r.iloc[13] if len(r) > 13 else 0
                     meta_val = r.iloc[14] if len(r) > 14 else 0
                     
@@ -288,9 +287,8 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
                                 'Sector': sec,
                                 'Codigo_Corto': codigo_corto,
                                 'Actividad_Completa': fila_txt.strip(),
-                                'Meta Proyecto': m_int,
-                                'Meta Socio': m_int,
-                                'Alcanzados': a_int,
+                                'Meta de la Actividad': m_int,
+                                'Alcanzados y Avance': a_int,
                                 '% Avance Socio': round(pct, 1)
                             })
                         except:
@@ -303,12 +301,12 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
 df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_bytes)
 
 if not df_reporte_act.empty:
-    df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
+    df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
 
     st.dataframe(
-        df_reporte_act[['Sector', 'Actividad_Completa', 'Meta Socio', 'Alcanzados', '% Avance Socio']].style.format({
-            'Meta Socio': '{:,}',
-            'Alcanzados': '{:,}',
+        df_reporte_act[['Sector', 'Actividad_Completa', 'Meta de la Actividad', 'Alcanzados y Avance', '% Avance Socio']].style.format({
+            'Meta de la Actividad': '{:,}',
+            'Alcanzados y Avance': '{:,}',
             '% Avance Socio': '{:.1f}%',
         }),
         width='stretch',
@@ -332,15 +330,10 @@ if not df_reporte_act.empty:
     # PREPARACIÓN EN FORMATO LONG PARA PLOTLY
     df_melted = df_reporte_act.melt(
         id_vars=['Codigo_Corto', 'Actividad_Completa', '% Avance Socio'],
-        value_vars=['Meta Socio', 'Alcanzados'],
+        value_vars=['Meta de la Actividad', 'Alcanzados y Avance'],
         var_name='Tipo',
         value_name='Valor'
     )
-
-    df_melted['Tipo'] = df_melted['Tipo'].replace({
-        'Meta Socio': 'Meta de la Actividad', 
-        'Alcanzados': 'Alcanzados y Avance'
-    })
 
     def obtener_etiqueta(row):
         val = row['Valor']
@@ -352,7 +345,7 @@ if not df_reporte_act.empty:
 
     df_melted['Etiqueta'] = [obtener_etiqueta(r) for _, r in df_melted.iterrows()]
 
-    orden_codigos = df_reporte_act.sort_values(by='Meta Socio', ascending=True)['Codigo_Corto'].tolist()
+    orden_codigos = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)['Codigo_Corto'].tolist()
 
     fig_act = px.bar(
         df_melted,
