@@ -248,7 +248,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL (TOTAL GENERAL)
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL (TOTAL GENERAL Y METAS)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -261,29 +261,13 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
             io_copy2 = io.BytesIO(file_bytes_io.getvalue())
             df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
             
-            # Identificar dinámicamente la columna 'Total general' y 'Meta'
-            cols = list(df_act_sheet.columns)
-            col_total_gen = None
-            col_meta = None
-            for c in cols:
-                c_str = str(c).strip().lower()
-                if 'total gener' in c_str or 'total_gener' in c_str:
-                    col_total_gen = c
-                elif 'meta' in c_str:
-                    col_meta = c
-            
-            # Fallback a posiciones fijas si no se detectan por nombre
-            if col_total_gen is None and len(cols) >= 14:
-                col_total_gen = cols[13]
-            if col_meta is None and len(cols) >= 15:
-                col_meta = cols[14]
-
             datos_actividades = []
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    meta_val = r[col_meta] if col_meta in r else None
-                    alcanzado_val = r[col_total_gen] if col_total_gen in r else None
+                    # Columna 13 = Total general (Alcanzados), Columna 14 = Meta
+                    alcanzado_val = r.iloc[13]
+                    meta_val = r.iloc[14]
                     
                     if pd.notnull(alcanzado_val):
                         try:
@@ -382,8 +366,8 @@ if not df_reporte_act.empty:
         hover_data={'Codigo_Corto': False, 'Valor': True, 'Actividad_Completa': True},
         category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
         color_discrete_map={
-            'Meta de la Actividad': '#08327D',
-            'Alcanzados y Avance': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
+            'Meta de la Actividad': '#08327D',  # Azul marino oficial
+            'Alcanzados y Avance': COLOR_ROSADO_AAP  # Violeta / Rosado orquídea (#D89FE3)
         },
         height=520,
         title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
