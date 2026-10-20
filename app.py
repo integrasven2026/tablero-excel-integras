@@ -151,7 +151,6 @@ def cargar_datos_crudos(file_bytes_io):
         df = pd.read_excel(io_copy3, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         
-        # Mapeo robusto dentro de la carga base
         def buscar_col(posibles):
             for col in df.columns:
                 if any(p.lower() in str(col).lower() for p in posibles):
@@ -162,7 +161,15 @@ def cargar_datos_crudos(file_bytes_io):
         c_estado = buscar_col(['estado'])
         c_muni = buscar_col(['municipio'])
         c_sector = buscar_col(['resultado', 'sector'])
-        c_act = buscar_col(['actividad'])
+        
+        c_act = None
+        for col in df.columns:
+            if 'actividad' in str(col).lower() and 'fecha' not in str(col).lower():
+                c_act = col
+                break
+        if not c_act:
+            c_act = buscar_col(['actividad'])
+
         c_sexo = buscar_col(['sexo'])
         c_edad = buscar_col(['edad_calculada', 'edad'])
         c_id = buscar_col(['codigoid', 'id'])
@@ -248,7 +255,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (METAS OFICIALES VS ALCANZADOS CON FILTRO DE ORGANIZACIÓN)
+# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA N = ALCANZADOS, COLUMNA O = META)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -277,6 +284,8 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
+                    # Columna N (índice 13) = Total general (Alcanzados), Columna O (índice 14) = Meta
+                    alcanzado_excel = r.iloc[13] if len(r) > 13 else 0
                     meta_val = r.iloc[14] if len(r) > 14 else 0
                     
                     try:
@@ -285,7 +294,12 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
                         m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
                         codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
                         
-                        a_int = int(alcanzados_por_act.get(codigo_corto, 0))
+                        # Si hay filtro de organización u otros, usamos el detalle filtrado; si es Consorcio General, usamos la columna N exacta del Excel
+                        if org_seleccionada == 'Todos' and estado_seleccionado == 'Todos' and muni_seleccionado == 'Todos' and sector_seleccionado == 'Todos':
+                            a_int = int(float(alcanzado_excel)) if pd.notnull(alcanzado_excel) else 0
+                        else:
+                            a_int = int(alcanzados_por_act.get(codigo_corto, 0))
+
                         pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                         
                         sec = 'Protección'
