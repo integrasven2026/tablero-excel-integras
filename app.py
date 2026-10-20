@@ -86,12 +86,6 @@ st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 46122
 
-MESES_ES = {
-    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
-    5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
-    9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
-}
-
 MAPA_MUNICIPIOS = {
     'Libertador': [10.5000, -66.9167],
     'Caroní': [8.2833, -62.7167],
@@ -99,19 +93,18 @@ MAPA_MUNICIPIOS = {
     'Pedernales': [9.9667, -62.2500],
     'Tucupita': [9.0622, -62.0531],
     'Paz Castillo': [10.2167, -66.6667],
-    'Sucre (Miranda)': [10.4833, -66.8167],
+    'Sucre': [10.4833, -66.8167],
     'Urdaneta': [10.1500, -66.8833],
     'Arismendi': [10.7167, -62.5167],
     'Bermúdez': [10.6333, -63.2500],
     'Cruz Salmerón Acosta': [10.6167, -64.2000],
-    'Sucre (Sucre)': [10.2833, -63.8833],
     'Vargas': [10.6000, -66.9333],
 }
 
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA DE DATOS DESDE EXCEL
+# 2. CARGA INTELIGENTE DE DATOS DESDE EXCEL
 # -----------------------------------------------------------------------------
 st.sidebar.header('Carga de Datos (Excel)')
 uploaded_file = st.sidebar.file_uploader(
@@ -124,9 +117,17 @@ def cargar_datos_excel(file_bytes_or_path):
     try:
         xls = pd.ExcelFile(file_bytes_or_path)
         sheet_target = 'group_beneficiario' if 'group_beneficiario' in xls.sheet_names else xls.sheet_names[0]
-        df = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target)
         
-        # Limpiar columnas innombradas o nulas si las hay
+        # Búsqueda automática de la fila de encabezados reales
+        df_test = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=None)
+        header_row = 0
+        for idx, row in df_test.iloc[:15].iterrows():
+            row_str = " ".join([str(v) for v in row.values]).lower()
+            if 'codigoid' in row_str or 'nombres' in row_str:
+                header_row = idx
+                break
+                
+        df = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         return df
     except Exception as e:
@@ -148,21 +149,21 @@ if df_raw.empty:
     st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
     st.stop()
 
-# Normalización de columnas con respaldo automático
-def buscar_columna_flexible(df, posibles):
-    for col in df.columns:
+# Mapeo robusto de columnas del Excel consolidado
+def buscar_col(posibles):
+    for col in df_raw.columns:
         if any(p.lower() in str(col).lower() for p in posibles):
             return col
     return None
 
-c_ong = buscar_columna_flexible(df_raw, ['ong', 'socio', 'organizacion'])
-c_estado = buscar_columna_flexible(df_raw, ['estado', 'state', 'geo'])
-c_muni = buscar_columna_flexible(df_raw, ['municipio', 'muni'])
-c_sector = buscar_columna_flexible(df_raw, ['sector', 'resultado', 'rango'])
-c_act = buscar_columna_flexible(df_raw, ['actividad', 'activity'])
-c_sexo = buscar_columna_flexible(df_raw, ['sexo', 'genero'])
-c_edad = buscar_columna_flexible(df_raw, ['edad', 'age'])
-c_id = buscar_columna_flexible(df_raw, ['id', 'codigo', 'documento', 'cedula'])
+c_ong = buscar_col(['organización', 'ong', 'socio'])
+c_estado = buscar_col(['estado'])
+c_muni = buscar_col(['municipio'])
+c_sector = buscar_col(['resultado', 'sector'])
+c_act = buscar_col(['actividad'])
+c_sexo = buscar_col(['sexo'])
+c_edad = buscar_col(['edad_calculada', 'edad'])
+c_id = buscar_col(['codigoid', 'id'])
 
 df_raw['ONG'] = df_raw[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
 df_raw['Estado'] = df_raw[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
@@ -172,7 +173,6 @@ df_raw['Actividad'] = df_raw[c_act].astype(str).str.strip() if c_act else 'Gener
 df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
 df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
 df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
-df_raw['Mes_Reporte'] = 'Septiembre 2026'
 
 def calcular_grupo(row):
     e, s = row['Edad'], row['Sexo']
@@ -234,7 +234,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. GRÁFICOS
+# 5. GRÁFICOS INTERACTIVOS
 # -----------------------------------------------------------------------------
 g1, g2 = st.columns(2)
 
