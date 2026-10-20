@@ -112,6 +112,12 @@ METAS_ACTIVIDADES = {
         'Meta_Proyecto': 4635,
         'Metas_Socios': {'COOPI': 2000, 'HIAS': 1500, 'FLM': 1135},
     },
+    'R1A6': {
+        'Sector': 'Protección',
+        'Nombre': 'R1A6: Asistencia material y servicios directos',
+        'Meta_Proyecto': 800,
+        'Metas_Socios': {'COOPI': 400, 'HIAS': 400},
+    },
     'R2A2': {
         'Sector': 'Salud',
         'Nombre': 'R2A2: Servicios clínicos de salud sexual y reproductiva (SSR)',
@@ -123,6 +129,12 @@ METAS_ACTIVIDADES = {
         'Nombre': 'R4A4: Fortalecimiento de capacidades WASH y/o PCI',
         'Meta_Proyecto': 2800,
         'Metas_Socios': {'COOPI': 1800, 'PALUZ': 1000},
+    },
+    'R5A1': {
+        'Sector': 'Respuesta a Emergencia',
+        'Nombre': 'R5A1: Preposicionamiento y preparación operativa',
+        'Meta_Proyecto': 500,
+        'Metas_Socios': {'COOPI': 300, 'HIAS': 200},
     },
     'R5A2': {
         'Sector': 'Respuesta a Emergencia',
@@ -280,7 +292,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (ORDENADO Y EN VIOLETA/ROSADO AAP)
+# 5. SEGUIMIENTO DE ACTIVIDADES (GRÁFICO DUAL ORDENADO CON VALOR Y %)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
 
@@ -352,8 +364,8 @@ for cod_act, datos in METAS_ACTIVIDADES.items():
 df_reporte_act = pd.DataFrame(filas_reporte)
 
 if not df_reporte_act.empty:
-    # Ordenamos de menor a mayor por Meta Socio para que al mostrarse en barra horizontal el mayor quede arriba
-    df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
+    # Ordenamos de menor a mayor para que al graficarse horizontalmente el mayor quede arriba
+    df_reporte_act = df_reporte_act.sort_values(by='Alcanzados', ascending=True)
 
     st.dataframe(
         df_reporte_act.style.format({
@@ -380,24 +392,24 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # GRÁFICO DE BARRAS HORIZONTALES (METAS Y ALCANZADOS EN BARRAS SEPARADAS Y ORDENADAS)
+    # GRÁFICO DE BARRAS HORIZONTALES (METAS VS ALCANZADOS CON VALOR ABSOLUTO Y % VISIBLE)
     fig_act_bars = go.Figure()
 
-    # Barra 1: Meta de la Actividad (Azul Marino)
+    # Barra 1: Meta (Azul Marino)
     fig_act_bars.add_trace(
         go.Bar(
             y=df_reporte_act['Actividad'],
             x=df_reporte_act['Meta Socio'],
-            name='Meta de la Actividad',
-            text=df_reporte_act['Meta Socio'],
+            name='Meta',
+            text=df_reporte_act['Meta Socio'].apply(lambda x: f"{x:,}"),
             textposition='auto',
             orientation='h',
             marker_color='#08327D',
         )
     )
 
-    # Barra 2: Alcanzados / Avance (Violeta / Rosado AAP)
-    etiquetas_moradas = df_reporte_act.apply(
+    # Barra 2: Alcanzados y % (Violeta / Rosado AAP) con etiqueta explícita de Valor y Porcentaje
+    etiquetas_alcanzados = df_reporte_act.apply(
         lambda r: f"{r['Alcanzados']:,} ({r['% Avance Socio']:.1f}%)", axis=1
     )
 
@@ -405,8 +417,8 @@ if not df_reporte_act.empty:
         go.Bar(
             y=df_reporte_act['Actividad'],
             x=df_reporte_act['Alcanzados'],
-            name='Alcanzados y Avance',
-            text=etiquetas_moradas,
+            name='Alcanzados',
+            text=etiquetas_alcanzados,
             textposition='auto',
             orientation='h',
             marker_color=COLOR_ROSADO_AAP,  # Color violeta / rosado orquídea (#D89FE3)
@@ -419,7 +431,7 @@ if not df_reporte_act.empty:
         yaxis_title='Actividad',
         xaxis_title='Servicios / Personas',
         font=font_layout,
-        height=550,
+        height=580,
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
     )
 
