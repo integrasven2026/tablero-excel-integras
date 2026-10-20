@@ -103,7 +103,7 @@ COORDENADAS_MUNICIPIOS = {
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA INTELIGENTE DE DATOS DESDE EXCEL
+# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL
 # -----------------------------------------------------------------------------
 st.sidebar.header('Carga de Datos (Excel)')
 uploaded_file = st.sidebar.file_uploader(
@@ -111,13 +111,35 @@ uploaded_file = st.sidebar.file_uploader(
     type=['xlsx', 'xls']
 )
 
+def obtener_bytes_excel(file_or_path):
+    if hasattr(file_or_path, 'read'):
+        file_or_path.seek(0)
+        return io.BytesIO(file_or_path.read())
+    elif isinstance(file_or_path, str) and os.path.exists(file_or_path):
+        with open(file_or_path, 'rb') as f:
+            return io.BytesIO(f.read())
+    return None
+
+if uploaded_file is not None:
+    source_ref = uploaded_file
+else:
+    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
+    if os.path.exists(default_path):
+        source_ref = default_path
+        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
+    else:
+        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
+        st.stop()
+
 @st.cache_data
-def cargar_datos_excel(file_bytes_or_path):
+def cargar_datos_crudos(file_bytes_io):
     try:
-        xls = pd.ExcelFile(file_bytes_or_path)
+        io_copy = io.BytesIO(file_bytes_io.getvalue())
+        xls = pd.ExcelFile(io_copy)
         sheet_target = 'group_beneficiario' if 'group_beneficiario' in xls.sheet_names else xls.sheet_names[0]
         
-        df_test = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=None)
+        io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+        df_test = pd.read_excel(io_copy2, sheet_name=sheet_target, header=None)
         header_row = 0
         for idx, row in df_test.iloc[:15].iterrows():
             row_str = " ".join([str(v) for v in row.values]).lower()
@@ -125,25 +147,16 @@ def cargar_datos_excel(file_bytes_or_path):
                 header_row = idx
                 break
                 
-        df = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=header_row)
+        io_copy3 = io.BytesIO(file_bytes_io.getvalue())
+        df = pd.read_excel(io_copy3, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         return df
     except Exception as e:
         st.error(f"Error al procesar el Excel: {e}")
         return pd.DataFrame()
 
-if uploaded_file is not None:
-    df_raw = cargar_datos_excel(uploaded_file)
-    excel_path_ref = uploaded_file
-else:
-    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
-    if os.path.exists(default_path):
-        df_raw = cargar_datos_excel(default_path)
-        excel_path_ref = default_path
-        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
-    else:
-        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
-        st.stop()
+excel_bytes = obtener_bytes_excel(source_ref)
+df_raw = cargar_datos_crudos(excel_bytes)
 
 if df_raw.empty:
     st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
@@ -235,38 +248,62 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA "Benef. x Actividad - Automatico"
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL (TOTAL GENERAL)
 # -----------------------------------------------------------------------------
-st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
+st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados(file_ref):
+def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
     try:
-        xls = pd.ExcelFile(file_ref)
+        io_copy = io.BytesIO(file_bytes_io.getvalue())
+        xls = pd.ExcelFile(io_copy)
         if 'Benef. x Actividad - Automatico' in xls.sheet_names:
-            df_act_sheet = pd.read_excel(file_ref, sheet_name='Benef. x Actividad - Automatico', header=10)
+            io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+            df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
+            
+            # Identificar dinámicamente la columna 'Total general' y 'Meta'
+            cols = list(df_act_sheet.columns)
+            col_total_gen = None
+            col_meta = None
+            for c in cols:
+                c_str = str(c).strip().lower()
+                if 'total gener' in c_str or 'total_gener' in c_str:
+                    col_total_gen = c
+                elif 'meta' in c_str:
+                    col_meta = c
+            
+            # Fallback a posiciones fijas si no se detectan por nombre
+            if col_total_gen is None and len(cols) >= 14:
+                col_total_gen = cols[13]
+            if col_meta is None and len(cols) >= 15:
+                col_meta = cols[14]
+
             datos_actividades = []
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    meta_val = r.iloc[14]
-                    alcanzado_val = r.iloc[13]
-                    if pd.notnull(meta_val) and pd.notnull(alcanzado_val):
+                    meta_val = r[col_meta] if col_meta in r else None
+                    alcanzado_val = r[col_total_gen] if col_total_gen in r else None
+                    
+                    if pd.notnull(alcanzado_val):
                         try:
-                            m_int = int(meta_val)
-                            a_int = int(alcanzado_val)
+                            a_int = int(float(alcanzado_val))
+                            m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
                             pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                             
-                            # Determinar sector
                             sec = 'Protección'
                             if 'R2' in fila_txt: sec = 'Salud'
                             elif 'R3' in fila_txt: sec = 'Nutrición'
                             elif 'R4' in fila_txt: sec = 'WASH'
                             elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
                             
+                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
+                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
+                            
                             datos_actividades.append({
                                 'Sector': sec,
-                                'Actividad': fila_txt.split(' (')[0],
+                                'Codigo_Corto': codigo_corto,
+                                'Actividad_Completa': fila_txt.strip(),
                                 'Meta Proyecto': m_int,
                                 'Meta Socio': m_int,
                                 'Alcanzados': a_int,
@@ -279,28 +316,13 @@ def cargar_metas_y_alcanzados(file_ref):
         pass
     return pd.DataFrame()
 
-df_reporte_act = cargar_metas_y_alcanzados(excel_path_ref)
-
-if df_reporte_act.empty:
-    # Fallback si no encuentra la hoja exacta
-    df_reporte_act = pd.DataFrame([
-        {'Sector': 'Protección', 'Actividad': 'R1A5: Sesiones informativas y sensibilización', 'Meta Proyecto': 8240, 'Meta Socio': 8240, 'Alcanzados': 1692, '% Avance Socio': 20.5},
-        {'Sector': 'Protección', 'Actividad': 'R1A4: Apoyo psicosocial', 'Meta Proyecto': 1870, 'Meta Socio': 1870, 'Alcanzados': 484, '% Avance Socio': 25.9},
-        {'Sector': 'Protección', 'Actividad': 'R1A3: Asistencia jurídica', 'Meta Proyecto': 910, 'Meta Socio': 910, 'Alcanzados': 362, '% Avance Socio': 39.8},
-        {'Sector': 'Protección', 'Actividad': 'R1A1: Protección infantil (Individual)', 'Meta Proyecto': 1092, 'Meta Socio': 1092, 'Alcanzados': 782, '% Avance Socio': 71.6},
-        {'Sector': 'Protección', 'Actividad': 'R1A6: Asistencia material y directa', 'Meta Proyecto': 1050, 'Meta Socio': 1050, 'Alcanzados': 192, '% Avance Socio': 18.3},
-        {'Sector': 'Salud', 'Actividad': 'R2A2: Servicios clínicos SSR', 'Meta Proyecto': 2838, 'Meta Socio': 2838, 'Alcanzados': 169, '% Avance Socio': 6.0},
-        {'Sector': 'WASH', 'Actividad': 'R4A4: Fortalecimiento capacidades WASH/PCI', 'Meta Proyecto': 5128, 'Meta Socio': 5128, 'Alcanzados': 1383, '% Avance Socio': 27.0},
-        {'Sector': 'Respuesta a Emergencia', 'Meta Proyecto': 5100, 'Meta Socio': 5100, 'Alcanzados': 622, '% Avance Socio': 12.2, 'Actividad': 'R5A2: Respuesta mecanismo modificador de crisis'}
-    ])
+df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_bytes)
 
 if not df_reporte_act.empty:
-    # Ordenamos de menor a mayor para que en el gráfico horizontal el mayor quede arriba
     df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
 
     st.dataframe(
-        df_reporte_act.style.format({
-            'Meta Proyecto': '{:,}',
+        df_reporte_act[['Sector', 'Actividad_Completa', 'Meta Socio', 'Alcanzados', '% Avance Socio']].style.format({
             'Meta Socio': '{:,}',
             'Alcanzados': '{:,}',
             '% Avance Socio': '{:.1f}%',
@@ -323,9 +345,9 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # PREPARACIÓN EN FORMATO LONG PARA PLOTLY EXPRESS
+    # PREPARACIÓN EN FORMATO LONG PARA PLOTLY
     df_melted = df_reporte_act.melt(
-        id_vars=['Actividad'],
+        id_vars=['Codigo_Corto', 'Actividad_Completa', '% Avance Socio'],
         value_vars=['Meta Socio', 'Alcanzados'],
         var_name='Tipo',
         value_name='Valor'
@@ -338,34 +360,32 @@ if not df_reporte_act.empty:
 
     def obtener_etiqueta(row):
         val = row['Valor']
-        act = row['Actividad']
         tipo = row['Tipo']
+        pct = row['% Avance Socio']
         if tipo == 'Alcanzados y Avance':
-            match_row = df_reporte_act[df_reporte_act['Actividad'] == act]
-            if not match_row.empty:
-                pct = match_row.iloc[0]['% Avance Socio']
-                return f"{val:,} ({pct:.1f}%)"
+            return f"{val:,} ({pct:.1f}%)"
         return f"{val:,}"
 
-    etiquetas = [obtener_etiqueta(r) for _, r in df_melted.iterrows()]
-    df_melted['Etiqueta'] = etiquetas
+    df_melted['Etiqueta'] = [obtener_etiqueta(r) for _, r in df_melted.iterrows()]
 
-    orden_actividades = df_reporte_act.sort_values(by='Meta Socio', ascending=True)['Actividad'].tolist()
+    orden_codigos = df_reporte_act.sort_values(by='Meta Socio', ascending=True)['Codigo_Corto'].tolist()
 
     fig_act = px.bar(
         df_melted,
         x='Valor',
-        y='Actividad',
+        y='Codigo_Corto',
         color='Tipo',
         barmode='group',
         orientation='h',
         text='Etiqueta',
-        category_orders={'Actividad': orden_actividades, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
+        hover_name='Actividad_Completa',
+        hover_data={'Codigo_Corto': False, 'Valor': True, 'Actividad_Completa': True},
+        category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
         color_discrete_map={
             'Meta de la Actividad': '#08327D',
             'Alcanzados y Avance': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
         },
-        height=580,
+        height=520,
         title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
     )
 
@@ -373,9 +393,10 @@ if not df_reporte_act.empty:
     fig_act.update_layout(
         font=font_layout,
         xaxis_title='Servicios / Personas',
-        yaxis_title='Actividad',
+        yaxis_title='Código de Actividad',
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        uniformtext_minsize=8, 
+        margin=dict(l=20, r=60, t=50, b=30),
+        uniformtext_minsize=9, 
         uniformtext_mode='hide'
     )
 
