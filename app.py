@@ -86,7 +86,52 @@ st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 46122
 
-# Coordenadas geográficas de municipios de intervención
+# METAS OFICIALES DE ACTIVIDADES DEL PROYECTO
+METAS_ACTIVIDADES = {
+    'R1A1': {
+        'Sector': 'Protección',
+        'Nombre': 'R1A1: Servicios de respuesta individualizados de protección infantil',
+        'Meta_Proyecto': 3194,
+        'Metas_Socios': {'COOPI': 1200, 'HIAS': 1000, 'FLM': 994},
+    },
+    'R1A3': {
+        'Sector': 'Protección',
+        'Nombre': 'R1A3: Asistencia jurídica de calidad a personas vulnerables',
+        'Meta_Proyecto': 1047,
+        'Metas_Socios': {'COOPI': 400, 'HIAS': 350, 'FLM': 297},
+    },
+    'R1A4': {
+        'Sector': 'Protección',
+        'Nombre': 'R1A4: Apoyo psicosocial individuales y grupales',
+        'Meta_Proyecto': 2108,
+        'Metas_Socios': {'COOPI': 1000, 'FLM': 608, 'HIAS': 500},
+    },
+    'R1A5': {
+        'Sector': 'Protección',
+        'Nombre': 'R1A5: Sesiones informativas y de sensibilización',
+        'Meta_Proyecto': 4635,
+        'Metas_Socios': {'COOPI': 2000, 'HIAS': 1500, 'FLM': 1135},
+    },
+    'R2A2': {
+        'Sector': 'Salud',
+        'Nombre': 'R2A2: Servicios clínicos de salud sexual y reproductiva (SSR)',
+        'Meta_Proyecto': 1144,
+        'Metas_Socios': {'PLAFAM': 750, 'PALUZ': 394},
+    },
+    'R4A4': {
+        'Sector': 'WASH',
+        'Nombre': 'R4A4: Fortalecimiento de capacidades WASH y/o PCI',
+        'Meta_Proyecto': 2800,
+        'Metas_Socios': {'COOPI': 1800, 'PALUZ': 1000},
+    },
+    'R5A2': {
+        'Sector': 'Respuesta a Emergencia',
+        'Nombre': 'R5A2: Activación y respuesta a través del mecanismo modificador de crisis',
+        'Meta_Proyecto': 5100,
+        'Metas_Socios': {'COOPI': 3000, 'HIAS': 2100},
+    },
+}
+
 COORDENADAS_MUNICIPIOS = {
     'Libertador': [10.5000, -66.9167],
     'Caroní': [8.2833, -62.7167],
@@ -149,7 +194,7 @@ if df_raw.empty:
     st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
     st.stop()
 
-# Mapeo de columnas
+# Mapeo robusto de columnas
 def buscar_col(posibles):
     for col in df_raw.columns:
         if any(p.lower() in str(col).lower() for p in posibles):
@@ -169,10 +214,17 @@ df_raw['ONG'] = df_raw[c_ong].astype(str).str.upper().str.strip() if c_ong else 
 df_raw['Estado'] = df_raw[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
 df_raw['Municipio'] = df_raw[c_muni].astype(str).str.strip() if c_muni else 'Libertador'
 df_raw['Sector'] = df_raw[c_sector].astype(str).str.strip() if c_sector else 'Protección'
-df_raw['Actividad'] = df_raw[c_act].astype(str).str.strip() if c_act else 'General'
+df_raw['Actividad_Raw'] = df_raw[c_act].astype(str).str.strip() if c_act else 'General'
 df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
 df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
 df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
+
+# Extraer código de actividad (ej: R1A1) del texto largo de Kobo/Excel
+def extraer_codigo_act(txt):
+    m = re.search(r'(R\d+A\d+)', str(txt), re.IGNORECASE)
+    return m.group(1).upper() if m else 'OTRO'
+
+df_raw['Actividad_Cod'] = df_raw['Actividad_Raw'].apply(extraer_codigo_act)
 
 def calcular_grupo(row):
     e, s = row['Edad'], row['Sexo']
@@ -202,7 +254,7 @@ muni_sel = st.sidebar.selectbox('Municipio:', munis_disp)
 sectores_disp = ['Todos'] + sorted([x for x in df_raw['Sector'].dropna().unique() if x != 'nan'])
 sector_sel = st.sidebar.selectbox('Sector de Implementación:', sectores_disp)
 
-# Aplicar filtros
+# Aplicar filtros generales
 df_filtered = df_raw.copy()
 if socio_sel != 'Todos':
     df_filtered = df_filtered[df_filtered['ONG'] == socio_sel]
@@ -229,7 +281,157 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. GRÁFICOS: TORTA (DONUT) Y SECTOR
+# 5. SEGUIMIENTO DE ACTIVIDADES (TABLA Y GRÁFICO DUAL)
+# -----------------------------------------------------------------------------
+st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
+
+col_act1, col_act2, col_act3 = st.columns(3)
+
+with col_act1:
+    socios_act_list = ['TODOS'] + sorted(list(set(df_filtered['ONG'].unique()).union({'COOPI', 'HIAS', 'FLM', 'PALUZ', 'PLAFAM'})))
+    socio_reporte = st.selectbox('Filtrar Reporte por Socio:', options=socios_act_list, key='act_socio_sel')
+
+with col_act2:
+    sectores_act_list = ['TODOS'] + sorted(list(set(d['Sector'] for d in METAS_ACTIVIDADES.values())))
+    sector_reporte = st.selectbox('Filtrar por Sector:', options=sectores_act_list, key='act_sector_sel')
+
+with col_act3:
+    localidades_list = ['TODOS'] + sorted([x for x in df_filtered['Estado'].dropna().unique() if x])
+    localidad_reporte = st.selectbox('Filtrar por Localidad (Estado):', options=localidades_list, key='act_localidad_sel')
+
+df_act_base = df_filtered.copy()
+if localidad_reporte != 'TODOS':
+    df_act_base = df_act_base[df_act_base['Estado'] == localidad_reporte]
+
+filas_reporte = []
+
+for cod_act, datos in METAS_ACTIVIDADES.items():
+    sec = datos['Sector']
+    nombre_act = datos['Nombre']
+    meta_proy = datos['Meta_Proyecto']
+    metas_socios = datos['Metas_Socios']
+
+    if sector_reporte != 'TODOS' and sec != sector_reporte:
+        continue
+
+    if socio_reporte != 'TODOS':
+        if socio_reporte not in metas_socios:
+            continue
+        meta_socio = metas_socios[socio_reporte]
+
+        df_act = df_act_base[
+            (df_act_base['ONG'] == socio_reporte) & 
+            (df_act_base['Actividad_Cod'] == cod_act)
+        ]
+        alcanzado_val = len(df_act)
+        pct = (alcanzado_val / meta_socio * 100) if meta_socio > 0 else 0.0
+
+        filas_reporte.append({
+            'Sector': sec,
+            'Actividad': nombre_act,
+            'Socio': socio_reporte,
+            'Meta Proyecto': meta_proy,
+            'Meta Socio': meta_socio,
+            'Alcanzados': alcanzado_val,
+            '% Avance Socio': round(pct, 1),
+        })
+    else:
+        df_act = df_act_base[df_act_base['Actividad_Cod'] == cod_act]
+        alcanzado_val = len(df_act)
+        pct = (alcanzado_val / meta_proy * 100) if meta_proy > 0 else 0.0
+
+        filas_reporte.append({
+            'Sector': sec,
+            'Actividad': nombre_act,
+            'Socio': 'TODOS (Consorcio)',
+            'Meta Proyecto': meta_proy,
+            'Meta Socio': meta_proy,
+            'Alcanzados': alcanzado_val,
+            '% Avance Socio': round(pct, 1),
+        })
+
+df_reporte_act = pd.DataFrame(filas_reporte)
+
+if not df_reporte_act.empty:
+    st.dataframe(
+        df_reporte_act.style.format({
+            'Meta Proyecto': '{:,}',
+            'Meta Socio': '{:,}',
+            'Alcanzados': '{:,}',
+            '% Avance Socio': '{:.1f}%',
+        }),
+        width='stretch',
+        hide_index=True,
+    )
+
+    buffer_act = io.BytesIO()
+    with pd.ExcelWriter(buffer_act, engine='openpyxl') as writer:
+        df_reporte_act.to_excel(writer, index=False, sheet_name='Actividades')
+    buffer_act.seek(0)
+
+    st.download_button(
+        label='📥 Descargar Seguimiento de Actividades en Excel',
+        data=buffer_act,
+        file_name='Seguimiento_Actividades_Consorcio_Integras.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+
+    st.markdown('<br>', unsafe_allow_html=True)
+
+    # Gráfico de barras horizontal dual
+    fig_act_bars = make_subplots(specs=[[{'secondary_y': True}]])
+
+    fig_act_bars.add_trace(
+        go.Bar(
+            y=df_reporte_act['Actividad'],
+            x=df_reporte_act['Meta Socio'],
+            name='Meta de la Actividad',
+            text=df_reporte_act['Meta Socio'],
+            textposition='auto',
+            orientation='h',
+            marker_color='#08327D',
+        ),
+        secondary_y=False,
+    )
+
+    etiquetas_moradas = df_reporte_act.apply(
+        lambda r: f"{r['% Avance Socio']:.1f}% ({r['Alcanzados']:,})", axis=1
+    )
+
+    fig_act_bars.add_trace(
+        go.Bar(
+            y=df_reporte_act['Actividad'],
+            x=df_reporte_act['% Avance Socio'],
+            name='% Avance y Alcanzados',
+            text=etiquetas_moradas,
+            textposition='auto',
+            orientation='h',
+            marker_color=COLOR_ROSADO_AAP,
+        ),
+        secondary_y=True,
+    )
+
+    fig_act_bars.update_layout(
+        title='Resultados por Actividad',
+        barmode='group',
+        yaxis_title='Actividad',
+        font=font_layout,
+        height=550,
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+    )
+
+    fig_act_bars.update_xaxes(title_text='Meta (Servicios / Personas)')
+    fig_act_bars.update_yaxes(title_text='Actividad', secondary_y=False)
+    fig_act_bars.update_yaxes(title=None, showticklabels=False, secondary_y=True)
+
+    st.plotly_chart(fig_act_bars, width='stretch')
+else:
+    st.info('No se registraron actividades correspondientes a los filtros seleccionados.')
+
+st.markdown('---')
+
+# -----------------------------------------------------------------------------
+# 6. GRÁFICOS: TORTA (DONUT) Y SECTOR
 # -----------------------------------------------------------------------------
 g1, g2 = st.columns(2)
 
@@ -265,7 +467,7 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 6. MUNICIPIOS ORDENADOS Y MAPA INTERACTIVO
+# 7. MUNICIPIOS ORDENADOS Y MAPA INTERACTIVO
 # -----------------------------------------------------------------------------
 m1, m2 = st.columns([1, 1])
 
@@ -273,7 +475,6 @@ with m1:
     st.subheader('Población Única por Municipio (Ordenado)')
     if total_unicos > 0:
         df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
-        # Ordenamos de menor a mayor para que en el gráfico de barras horizontales el mayor quede arriba
         df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
         
         fig_muni = px.bar(
