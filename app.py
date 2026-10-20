@@ -248,7 +248,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL (TOTAL GENERAL Y METAS)
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL (COLUMNAS M Y META)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -265,9 +265,9 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    # Columna 13 = Total general (Alcanzados), Columna 14 = Meta
-                    alcanzado_val = r.iloc[13]
-                    meta_val = r.iloc[14]
+                    # Columna M (índice 12) = Total September / Alcanzados, Columna O/Meta (índice 14) = Meta
+                    alcanzado_val = r.iloc[12] if len(r) > 12 else None
+                    meta_val = r.iloc[14] if len(r) > 14 else None
                     
                     if pd.notnull(alcanzado_val):
                         try:
