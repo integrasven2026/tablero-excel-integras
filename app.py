@@ -235,7 +235,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES DESDE "Benef. x Actividad - Automatico"
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA EXCEL OFICIAL
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -253,10 +253,10 @@ def cargar_metas_y_alcanzados_oficiales(file_ref):
                     meta_val = r.iloc[14]
                     alcanzado_val = r.iloc[13]
                     
-                    if pd.notnull(meta_val) and pd.notnull(alcanzado_val):
+                    if pd.notnull(alcanzado_val):
                         try:
-                            m_int = int(meta_val)
                             a_int = int(alcanzado_val)
+                            m_int = int(meta_val) if pd.notnull(meta_val) else 0
                             pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                             
                             sec = 'Protección'
