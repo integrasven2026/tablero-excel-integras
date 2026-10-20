@@ -163,23 +163,20 @@ if df_raw.empty:
     st.stop()
 
 # Mapeo robusto de columnas
-def buscar_col(df, posibles, excluir=[]):
-    for col in df.columns:
-        col_str = str(col).lower()
-        if any(p.lower() in col_str for p in posibles):
-            if any(exc.lower() in col_str for exc in excluir):
-                continue
+def buscar_col(posibles):
+    for col in df_raw.columns:
+        if any(p.lower() in str(col).lower() for p in posibles):
             return col
     return None
 
-c_ong = buscar_col(df_raw, ['organización', 'ong', 'socio'])
-c_estado = buscar_col(df_raw, ['estado'])
-c_muni = buscar_col(df_raw, ['municipio'])
-c_sector = buscar_col(df_raw, ['resultado', 'sector'])
-c_act = buscar_col(df_raw, ['actividad'], excluir=['fecha'])
-c_sexo = buscar_col(df_raw, ['sexo'])
-c_edad = buscar_col(df_raw, ['edad_calculada', 'edad'])
-c_id = buscar_col(df_raw, ['codigoid', 'id'])
+c_ong = buscar_col(['organización', 'ong', 'socio'])
+c_estado = buscar_col(['estado'])
+c_muni = buscar_col(['municipio'])
+c_sector = buscar_col(['resultado', 'sector'])
+c_act = buscar_col(['actividad'])
+c_sexo = buscar_col(['sexo'])
+c_edad = buscar_col(['edad_calculada', 'edad'])
+c_id = buscar_col(['codigoid', 'id'])
 
 df_raw['ONG'] = df_raw[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
 df_raw['Estado'] = df_raw[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
@@ -251,7 +248,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES OFICIALES (COLUMNA N = ALCANZADOS, COLUMNA O = META)
+# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA N = TOTAL GENERAL, COLUMNA O = META)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
