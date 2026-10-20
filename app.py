@@ -5,7 +5,6 @@ import folium
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -90,55 +89,55 @@ META_PARTICIPANTES_UNICOS = 46122
 METAS_ACTIVIDADES = {
     'R1A1': {
         'Sector': 'Protección',
-        'Nombre': 'R1A1: Servicios de respuesta individualizados de protección infantil',
+        'Nombre': 'R1A1: Protección infantil (Individual)',
         'Meta_Proyecto': 3194,
         'Metas_Socios': {'COOPI': 1200, 'HIAS': 1000, 'FLM': 994},
     },
     'R1A3': {
         'Sector': 'Protección',
-        'Nombre': 'R1A3: Asistencia jurídica de calidad a personas vulnerables',
+        'Nombre': 'R1A3: Asistencia jurídica',
         'Meta_Proyecto': 1047,
         'Metas_Socios': {'COOPI': 400, 'HIAS': 350, 'FLM': 297},
     },
     'R1A4': {
         'Sector': 'Protección',
-        'Nombre': 'R1A4: Apoyo psicosocial individuales y grupales',
+        'Nombre': 'R1A4: Apoyo psicosocial',
         'Meta_Proyecto': 2108,
         'Metas_Socios': {'COOPI': 1000, 'FLM': 608, 'HIAS': 500},
     },
     'R1A5': {
         'Sector': 'Protección',
-        'Nombre': 'R1A5: Sesiones informativas y de sensibilización',
+        'Nombre': 'R1A5: Sesiones informativas y sensibilización',
         'Meta_Proyecto': 4635,
         'Metas_Socios': {'COOPI': 2000, 'HIAS': 1500, 'FLM': 1135},
     },
     'R1A6': {
         'Sector': 'Protección',
-        'Nombre': 'R1A6: Asistencia material y servicios directos',
+        'Nombre': 'R1A6: Asistencia material y directa',
         'Meta_Proyecto': 800,
         'Metas_Socios': {'COOPI': 400, 'HIAS': 400},
     },
     'R2A2': {
         'Sector': 'Salud',
-        'Nombre': 'R2A2: Servicios clínicos de salud sexual y reproductiva (SSR)',
+        'Nombre': 'R2A2: Servicios clínicos SSR',
         'Meta_Proyecto': 1144,
         'Metas_Socios': {'PLAFAM': 750, 'PALUZ': 394},
     },
     'R4A4': {
         'Sector': 'WASH',
-        'Nombre': 'R4A4: Fortalecimiento de capacidades WASH y/o PCI',
+        'Nombre': 'R4A4: Fortalecimiento capacidades WASH/PCI',
         'Meta_Proyecto': 2800,
         'Metas_Socios': {'COOPI': 1800, 'PALUZ': 1000},
     },
     'R5A1': {
         'Sector': 'Respuesta a Emergencia',
-        'Nombre': 'R5A1: Preposicionamiento y preparación operativa',
+        'Nombre': 'R5A1: Preparación operativa',
         'Meta_Proyecto': 500,
         'Metas_Socios': {'COOPI': 300, 'HIAS': 200},
     },
     'R5A2': {
         'Sector': 'Respuesta a Emergencia',
-        'Nombre': 'R5A2: Activación y respuesta a través del mecanismo modificador de crisis',
+        'Nombre': 'R5A2: Respuesta mecanismo modificador de crisis',
         'Meta_Proyecto': 5100,
         'Metas_Socios': {'COOPI': 3000, 'HIAS': 2100},
     },
@@ -292,7 +291,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (GRÁFICO DUAL ORDENADO CON VALOR Y %)
+# 5. SEGUIMIENTO DE ACTIVIDADES (GRÁFICO DUAL LIMPIO Y GARANTIZADO)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
 
@@ -364,9 +363,6 @@ for cod_act, datos in METAS_ACTIVIDADES.items():
 df_reporte_act = pd.DataFrame(filas_reporte)
 
 if not df_reporte_act.empty:
-    # Ordenamos de menor a mayor para que al graficarse horizontalmente el mayor quede arriba
-    df_reporte_act = df_reporte_act.sort_values(by='Alcanzados', ascending=True)
-
     st.dataframe(
         df_reporte_act.style.format({
             'Meta Proyecto': '{:,}',
@@ -392,50 +388,44 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # GRÁFICO DE BARRAS HORIZONTALES (METAS VS ALCANZADOS CON VALOR ABSOLUTO Y % VISIBLE)
-    fig_act_bars = go.Figure()
-
-    # Barra 1: Meta (Azul Marino)
-    fig_act_bars.add_trace(
-        go.Bar(
-            y=df_reporte_act['Actividad'],
-            x=df_reporte_act['Meta Socio'],
-            name='Meta',
-            text=df_reporte_act['Meta Socio'].apply(lambda x: f"{x:,}"),
-            textposition='auto',
-            orientation='h',
-            marker_color='#08327D',
-        )
+    # PREPARACIÓN DE DATOS EN FORMATO LONG PARA PLOTLY EXPRESS (GARANTIZA VISUALIZACIÓN)
+    df_melted = df_reporte_act.melt(
+        id_vars=['Actividad'],
+        value_vars=['Meta Socio', 'Alcanzados'],
+        var_name='Tipo',
+        value_name='Valor'
     )
 
-    # Barra 2: Alcanzados y % (Violeta / Rosado AAP) con etiqueta explícita de Valor y Porcentaje
-    etiquetas_alcanzados = df_reporte_act.apply(
-        lambda r: f"{r['Alcanzados']:,} ({r['% Avance Socio']:.1f}%)", axis=1
-    )
+    # Mapear etiquetas y orden
+    df_melted['Tipo'] = df_melted['Tipo'].replace({'Meta Socio': 'Meta de la Actividad', 'Alcanzados': 'Alcanzados y Avance'})
+    
+    # Ordenamos el dataframe base de mayor a menor por Meta para el eje Y
+    orden_actividades = df_reporte_act.sort_values(by='Meta Socio', ascending=True)['Actividad'].tolist()
 
-    fig_act_bars.add_trace(
-        go.Bar(
-            y=df_reporte_act['Actividad'],
-            x=df_reporte_act['Alcanzados'],
-            name='Alcanzados',
-            text=etiquetas_alcanzados,
-            textposition='auto',
-            orientation='h',
-            marker_color=COLOR_ROSADO_AAP,  # Color violeta / rosado orquídea (#D89FE3)
-        )
-    )
-
-    fig_act_bars.update_layout(
-        title='Resultados por Actividad (Ordenado de Mayor a Menor)',
+    fig_act = px.bar(
+        df_melted,
+        x='Valor',
+        y='Actividad',
+        color='Tipo',
         barmode='group',
-        yaxis_title='Actividad',
-        xaxis_title='Servicios / Personas',
-        font=font_layout,
-        height=580,
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        orientation='h',
+        category_orders={'Actividad': orden_actividades, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
+        color_discrete_map={
+            'Meta de la Actividad': '#08327D',
+            'Alcanzados y Avance': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
+        },
+        height=550,
+        title='Resultados por Actividad (Ordenado)'
     )
 
-    st.plotly_chart(fig_act_bars, width='stretch')
+    fig_act.update_layout(
+        font=font_layout,
+        xaxis_title='Servicios / Personas',
+        yaxis_title='Actividad',
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+    )
+
+    st.plotly_chart(fig_act, width='stretch')
 else:
     st.info('No se registraron actividades correspondientes a los filtros seleccionados.')
 
