@@ -291,7 +291,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (GRÁFICO DUAL LIMPIO Y GARANTIZADO)
+# 5. SEGUIMIENTO DE ACTIVIDADES (GRÁFICO DUAL CON VALOR Y % EN VIOLETA AAP)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
 
@@ -363,6 +363,9 @@ for cod_act, datos in METAS_ACTIVIDADES.items():
 df_reporte_act = pd.DataFrame(filas_reporte)
 
 if not df_reporte_act.empty:
+    # Ordenamos de menor a mayor para que al graficar en horizontal el mayor quede arriba
+    df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
+
     st.dataframe(
         df_reporte_act.style.format({
             'Meta Proyecto': '{:,}',
@@ -388,7 +391,7 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # PREPARACIÓN DE DATOS EN FORMATO LONG PARA PLOTLY EXPRESS (GARANTIZA VISUALIZACIÓN)
+    # PREPARACIÓN EN FORMATO LONG PARA PLOTLY EXPRESS (GARANTIZA RENDERIZADO)
     df_melted = df_reporte_act.melt(
         id_vars=['Actividad'],
         value_vars=['Meta Socio', 'Alcanzados'],
@@ -396,10 +399,29 @@ if not df_reporte_act.empty:
         value_name='Valor'
     )
 
-    # Mapear etiquetas y orden
-    df_melted['Tipo'] = df_melted['Tipo'].replace({'Meta Socio': 'Meta de la Actividad', 'Alcanzados': 'Alcanzados y Avance'})
-    
-    # Ordenamos el dataframe base de mayor a menor por Meta para el eje Y
+    df_melted['Tipo'] = df_melted['Tipo'].replace({
+        'Meta Socio': 'Meta de la Actividad', 
+        'Alcanzados': 'Alcanzados y Avance'
+    })
+
+    # Añadir etiqueta de porcentaje para Alcanzados
+    def obtener_etiqueta(row):
+        val = row['Valor']
+        act = row['Actividad']
+        tipo = row['Tipo']
+        if tipo == 'Alcanzados y Avance':
+            match_row = df_reporte_act[df_reporte_act['Actividad'] == act]
+            if not match_row.empty:
+                pct = match_row.iloc[0]['% Avance Socio']
+                return f"{val:,} ({pct:.1f}%)"
+        return f"{val:,}"
+
+    # Asignar etiquetas dinámicas
+    etiquetas = []
+    for _, r in df_melted.iterrows():
+        etiquetas.append(obtener_etiqueta(r))
+    df_melted['Etiqueta'] = etiquetas
+
     orden_actividades = df_reporte_act.sort_values(by='Meta Socio', ascending=True)['Actividad'].tolist()
 
     fig_act = px.bar(
@@ -409,20 +431,24 @@ if not df_reporte_act.empty:
         color='Tipo',
         barmode='group',
         orientation='h',
+        text='Etiqueta',
         category_orders={'Actividad': orden_actividades, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
         color_discrete_map={
             'Meta de la Actividad': '#08327D',
             'Alcanzados y Avance': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
         },
-        height=550,
+        height=580,
         title='Resultados por Actividad (Ordenado)'
     )
 
+    fig_act.update_traces(textposition='outside')
     fig_act.update_layout(
         font=font_layout,
         xaxis_title='Servicios / Personas',
         yaxis_title='Actividad',
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1)
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        uniformtext_minsize=8, 
+        uniformtext_mode='hide'
     )
 
     st.plotly_chart(fig_act, width='stretch')
