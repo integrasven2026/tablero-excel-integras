@@ -103,7 +103,7 @@ COORDENADAS_MUNICIPIOS = {
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA INTELIGENTE DE DATOS DESDE EXCEL
+# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL
 # -----------------------------------------------------------------------------
 st.sidebar.header('Carga de Datos (Excel)')
 uploaded_file = st.sidebar.file_uploader(
@@ -111,13 +111,35 @@ uploaded_file = st.sidebar.file_uploader(
     type=['xlsx', 'xls']
 )
 
+def obtener_bytes_excel(file_or_path):
+    if hasattr(file_or_path, 'read'):
+        file_or_path.seek(0)
+        return io.BytesIO(file_or_path.read())
+    elif isinstance(file_or_path, str) and os.path.exists(file_or_path):
+        with open(file_or_path, 'rb') as f:
+            return io.BytesIO(f.read())
+    return None
+
+if uploaded_file is not None:
+    source_ref = uploaded_file
+else:
+    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
+    if os.path.exists(default_path):
+        source_ref = default_path
+        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
+    else:
+        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
+        st.stop()
+
 @st.cache_data
-def cargar_datos_excel(file_bytes_or_path):
+def cargar_datos_crudos(file_bytes_io):
     try:
-        xls = pd.ExcelFile(file_bytes_or_path)
+        io_copy = io.BytesIO(file_bytes_io.getvalue())
+        xls = pd.ExcelFile(io_copy)
         sheet_target = 'group_beneficiario' if 'group_beneficiario' in xls.sheet_names else xls.sheet_names[0]
         
-        df_test = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=None)
+        io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+        df_test = pd.read_excel(io_copy2, sheet_name=sheet_target, header=None)
         header_row = 0
         for idx, row in df_test.iloc[:15].iterrows():
             row_str = " ".join([str(v) for v in row.values]).lower()
@@ -125,25 +147,16 @@ def cargar_datos_excel(file_bytes_or_path):
                 header_row = idx
                 break
                 
-        df = pd.read_excel(file_bytes_or_path, sheet_name=sheet_target, header=header_row)
+        io_copy3 = io.BytesIO(file_bytes_io.getvalue())
+        df = pd.read_excel(io_copy3, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         return df
     except Exception as e:
         st.error(f"Error al procesar el Excel: {e}")
         return pd.DataFrame()
 
-if uploaded_file is not None:
-    df_raw = cargar_datos_excel(uploaded_file)
-    excel_path_ref = uploaded_file
-else:
-    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
-    if os.path.exists(default_path):
-        df_raw = cargar_datos_excel(default_path)
-        excel_path_ref = default_path
-        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
-    else:
-        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
-        st.stop()
+excel_bytes = obtener_bytes_excel(source_ref)
+df_raw = cargar_datos_crudos(excel_bytes)
 
 if df_raw.empty:
     st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
@@ -235,16 +248,18 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA EXCEL OFICIAL
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE LA HOJA OFICIAL
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados_oficiales(file_ref):
+def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
     try:
-        xls = pd.ExcelFile(file_ref)
+        io_copy = io.BytesIO(file_bytes_io.getvalue())
+        xls = pd.ExcelFile(io_copy)
         if 'Benef. x Actividad - Automatico' in xls.sheet_names:
-            df_act_sheet = pd.read_excel(file_ref, sheet_name='Benef. x Actividad - Automatico', header=10)
+            io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+            df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=10)
             datos_actividades = []
             
             for _, r in df_act_sheet.iterrows():
@@ -284,7 +299,7 @@ def cargar_metas_y_alcanzados_oficiales(file_ref):
         pass
     return pd.DataFrame()
 
-df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_path_ref)
+df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_bytes)
 
 if not df_reporte_act.empty:
     df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
