@@ -150,6 +150,46 @@ def cargar_datos_crudos(file_bytes_io):
         io_copy3 = io.BytesIO(file_bytes_io.getvalue())
         df = pd.read_excel(io_copy3, sheet_name=sheet_target, header=header_row)
         df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+        
+        # Mapeo robusto dentro de la carga base
+        def buscar_col(posibles):
+            for col in df.columns:
+                if any(p.lower() in str(col).lower() for p in posibles):
+                    return col
+            return None
+
+        c_ong = buscar_col(['organización', 'ong', 'socio'])
+        c_estado = buscar_col(['estado'])
+        c_muni = buscar_col(['municipio'])
+        c_sector = buscar_col(['resultado', 'sector'])
+        c_act = buscar_col(['actividad'])
+        c_sexo = buscar_col(['sexo'])
+        c_edad = buscar_col(['edad_calculada', 'edad'])
+        c_id = buscar_col(['codigoid', 'id'])
+
+        df['ONG'] = df[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
+        df['Estado'] = df[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
+        df['Municipio'] = df[c_muni].astype(str).str.strip() if c_muni else 'Libertador'
+        df['Sector'] = df[c_sector].astype(str).str.strip() if c_sector else 'Protección'
+        df['Actividad_Raw'] = df[c_act].astype(str).str.strip() if c_act else 'General'
+        df['Sexo'] = df[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
+        df['Edad'] = pd.to_numeric(df[c_edad], errors='coerce').fillna(25) if c_edad else 25
+        df['ID_Unico'] = df[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df))]
+
+        def extraer_codigo_act(txt):
+            m = re.search(r'(R\d+A\d+)', str(txt), re.IGNORECASE)
+            return m.group(1).upper() if m else 'OTRO'
+
+        df['Actividad_Cod'] = df['Actividad_Raw'].apply(extraer_codigo_act)
+
+        def calcular_grupo(row):
+            e, s = row['Edad'], row['Sexo']
+            if e < 18:
+                return 'Niña' if s in ['Femenino', 'Mujer'] else 'Niño'
+            else:
+                return 'Mujer' if s in ['Femenino', 'Mujer'] else 'Hombre'
+
+        df['Grupo_Demografico'] = df.apply(calcular_grupo, axis=1)
         return df
     except Exception as e:
         st.error(f"Error al procesar el Excel: {e}")
@@ -161,46 +201,6 @@ df_raw = cargar_datos_crudos(excel_bytes)
 if df_raw.empty:
     st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
     st.stop()
-
-# Mapeo robusto de columnas
-def buscar_col(posibles):
-    for col in df_raw.columns:
-        if any(p.lower() in str(col).lower() for p in posibles):
-            return col
-    return None
-
-c_ong = buscar_col(['organización', 'ong', 'socio'])
-c_estado = buscar_col(['estado'])
-c_muni = buscar_col(['municipio'])
-c_sector = buscar_col(['resultado', 'sector'])
-c_act = buscar_col(['actividad'])
-c_sexo = buscar_col(['sexo'])
-c_edad = buscar_col(['edad_calculada', 'edad'])
-c_id = buscar_col(['codigoid', 'id'])
-
-df_raw['ONG'] = df_raw[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
-df_raw['Estado'] = df_raw[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
-df_raw['Municipio'] = df_raw[c_muni].astype(str).str.strip() if c_muni else 'Libertador'
-df_raw['Sector'] = df_raw[c_sector].astype(str).str.strip() if c_sector else 'Protección'
-df_raw['Actividad_Raw'] = df_raw[c_act].astype(str).str.strip() if c_act else 'General'
-df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
-df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
-df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
-
-def extraer_codigo_act(txt):
-    m = re.search(r'(R\d+A\d+)', str(txt), re.IGNORECASE)
-    return m.group(1).upper() if m else 'OTRO'
-
-df_raw['Actividad_Cod'] = df_raw['Actividad_Raw'].apply(extraer_codigo_act)
-
-def calcular_grupo(row):
-    e, s = row['Edad'], row['Sexo']
-    if e < 18:
-        return 'Niña' if s in ['Femenino', 'Mujer'] else 'Niño'
-    else:
-        return 'Mujer' if s in ['Femenino', 'Mujer'] else 'Hombre'
-
-df_raw['Grupo_Demografico'] = df_raw.apply(calcular_grupo, axis=1)
 
 # -----------------------------------------------------------------------------
 # 3. FILTROS LATERALES
@@ -261,7 +261,6 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
             io_copy2 = io.BytesIO(file_bytes_io.getvalue())
             df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
             
-            # También leemos el detalle completo para calcular alcanzados filtrados en vivo
             df_detalle = cargar_datos_crudos(file_bytes_io)
             if org_seleccionada != 'Todos':
                 df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
@@ -272,7 +271,6 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
             if sector_seleccionado != 'Todos':
                 df_detalle = df_detalle[df_detalle['Sector'] == sector_seleccionado]
 
-            # Agrupar alcanzados reales desde el detalle filtrado
             alcanzados_por_act = df_detalle.groupby('Actividad_Cod').size().to_dict()
 
             datos_actividades = []
@@ -287,9 +285,7 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
                         m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
                         codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
                         
-                        # Tomar el alcanzado filtrado del detalle de Kobo
                         a_int = int(alcanzados_por_act.get(codigo_corto, 0))
-                        
                         pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                         
                         sec = 'Protección'
