@@ -164,7 +164,6 @@ c_act = buscar_col(['actividad'])
 c_sexo = buscar_col(['sexo'])
 c_edad = buscar_col(['edad_calculada', 'edad'])
 c_id = buscar_col(['codigoid', 'id'])
-c_bu_act = buscar_col(['beneficiarios unicos x actividad'])
 
 df_raw['ONG'] = df_raw[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
 df_raw['Estado'] = df_raw[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
@@ -174,7 +173,6 @@ df_raw['Actividad_Raw'] = df_raw[c_act].astype(str).str.strip() if c_act else 'G
 df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
 df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
 df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
-df_raw['BU_Actividad'] = pd.to_numeric(df_raw[c_bu_act], errors='coerce').fillna(1) if c_bu_act else 1
 
 def extraer_codigo_act(txt):
     m = re.search(r'(R\d+A\d+)', str(txt), re.IGNORECASE)
@@ -237,42 +235,28 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (BENEFICIARIOS ÚNICOS X ACTIVIDAD = 1)
+# 5. SEGUIMIENTO DE ACTIVIDADES DESDE "Benef. x Actividad - Automatico"
 # -----------------------------------------------------------------------------
-st.subheader('Seguimiento de Actividades (Beneficiarios Únicos x Actividad = 1)')
+st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados_unicos(file_ref):
+def cargar_metas_y_alcanzados_oficiales(file_ref):
     try:
         xls = pd.ExcelFile(file_ref)
         if 'Benef. x Actividad - Automatico' in xls.sheet_names:
             df_act_sheet = pd.read_excel(file_ref, sheet_name='Benef. x Actividad - Automatico', header=10)
             datos_actividades = []
             
-            # Cargar datos crudos para calcular los alcanzados con BU_Actividad == 1
-            df_raw_local = pd.read_excel(file_ref, sheet_name='group_beneficiario', header=9)
-            c_act_l = buscar_col(['actividad'])
-            c_bu_l = buscar_col(['beneficiarios unicos x actividad'])
-            
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
                     meta_val = r.iloc[14]
-                    if pd.notnull(meta_val):
+                    alcanzado_val = r.iloc[13]
+                    
+                    if pd.notnull(meta_val) and pd.notnull(alcanzado_val):
                         try:
                             m_int = int(meta_val)
-                            
-                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
-                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
-                            
-                            # Filtrar alcanzados donde Beneficiarios Unicos x Actividad == 1
-                            if c_act_l and c_bu_l:
-                                mask = (df_raw_local[c_act_l].astype(str).str.contains(codigo_corto, case=False, na=False)) & \
-                                       (pd.to_numeric(df_raw_local[c_bu_l], errors='coerce') == 1)
-                                a_int = int(mask.sum())
-                            else:
-                                a_int = int(r.iloc[13]) # Fallback
-                                
+                            a_int = int(alcanzado_val)
                             pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                             
                             sec = 'Protección'
@@ -280,6 +264,9 @@ def cargar_metas_y_alcanzados_unicos(file_ref):
                             elif 'R3' in fila_txt: sec = 'Nutrición'
                             elif 'R4' in fila_txt: sec = 'WASH'
                             elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
+                            
+                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
+                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
                             
                             datos_actividades.append({
                                 'Sector': sec,
@@ -297,7 +284,7 @@ def cargar_metas_y_alcanzados_unicos(file_ref):
         pass
     return pd.DataFrame()
 
-df_reporte_act = cargar_metas_y_alcanzados_unicos(excel_path_ref)
+df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_path_ref)
 
 if not df_reporte_act.empty:
     df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
@@ -336,14 +323,14 @@ if not df_reporte_act.empty:
 
     df_melted['Tipo'] = df_melted['Tipo'].replace({
         'Meta Socio': 'Meta de la Actividad', 
-        'Alcanzados': 'Alcanzados (Únicos x Actividad = 1)'
+        'Alcanzados': 'Alcanzados y Avance'
     })
 
     def obtener_etiqueta(row):
         val = row['Valor']
         tipo = row['Tipo']
         pct = row['% Avance Socio']
-        if 'Alcanzados' in tipo:
+        if tipo == 'Alcanzados y Avance':
             return f"{val:,} ({pct:.1f}%)"
         return f"{val:,}"
 
@@ -361,13 +348,13 @@ if not df_reporte_act.empty:
         text='Etiqueta',
         hover_name='Actividad_Completa',
         hover_data={'Codigo_Corto': False, 'Valor': True, 'Actividad_Completa': True},
-        category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados (Únicos x Actividad = 1)']},
+        category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
         color_discrete_map={
             'Meta de la Actividad': '#08327D',
-            'Alcanzados (Únicos x Actividad = 1)': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
+            'Alcanzados y Avance': COLOR_ROSADO_AAP  # Color violeta / rosado orquídea (#D89FE3)
         },
-        height=480,
-        title='Resultados por Actividad (Beneficiarios Únicos x Actividad = 1)'
+        height=520,
+        title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
     )
 
     fig_act.update_traces(textposition='outside')
@@ -376,7 +363,7 @@ if not df_reporte_act.empty:
         xaxis_title='Servicios / Personas',
         yaxis_title='Código de Actividad',
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=20, r=40, t=50, b=30),
+        margin=dict(l=20, r=60, t=50, b=30),
         uniformtext_minsize=9, 
         uniformtext_mode='hide'
     )
