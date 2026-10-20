@@ -219,7 +219,6 @@ df_raw['Sexo'] = df_raw[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otr
 df_raw['Edad'] = pd.to_numeric(df_raw[c_edad], errors='coerce').fillna(25) if c_edad else 25
 df_raw['ID_Unico'] = df_raw[c_id].astype(str) if c_id else [f"ID_{i}" for i in range(len(df_raw))]
 
-# Extraer código de actividad (ej: R1A1) del texto largo de Kobo/Excel
 def extraer_codigo_act(txt):
     m = re.search(r'(R\d+A\d+)', str(txt), re.IGNORECASE)
     return m.group(1).upper() if m else 'OTRO'
@@ -281,7 +280,7 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (TABLA Y GRÁFICO DUAL)
+# 5. SEGUIMIENTO DE ACTIVIDADES (ORDENADO Y EN VIOLETA/ROSADO AAP)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades por Socio, Sector y Localidad')
 
@@ -353,6 +352,9 @@ for cod_act, datos in METAS_ACTIVIDADES.items():
 df_reporte_act = pd.DataFrame(filas_reporte)
 
 if not df_reporte_act.empty:
+    # Ordenamos de menor a mayor para que en el gráfico horizontal el mayor quede arriba
+    df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
+
     st.dataframe(
         df_reporte_act.style.format({
             'Meta Proyecto': '{:,}',
@@ -378,7 +380,7 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # Gráfico de barras horizontal dual
+    # Gráfico de barras horizontal dual ordenado y con color violeta/rosado AAP
     fig_act_bars = make_subplots(specs=[[{'secondary_y': True}]])
 
     fig_act_bars.add_trace(
@@ -406,13 +408,13 @@ if not df_reporte_act.empty:
             text=etiquetas_moradas,
             textposition='auto',
             orientation='h',
-            marker_color=COLOR_ROSADO_AAP,
+            marker_color=COLOR_ROSADO_AAP,  # Color violeta / rosado orquídea (#D89FE3)
         ),
         secondary_y=True,
     )
 
     fig_act_bars.update_layout(
-        title='Resultados por Actividad',
+        title='Resultados por Actividad (Ordenado de Mayor a Menor)',
         barmode='group',
         yaxis_title='Actividad',
         font=font_layout,
