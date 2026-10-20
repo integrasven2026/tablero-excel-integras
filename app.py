@@ -248,12 +248,14 @@ col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA N = TOTAL GENERAL, COLUMNA O = META)
+# 5. SEGUIMIENTO DE ACTIVIDADES DINÁMICO (FILTRADO POR BARRA LATERAL)
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
+def cargar_metas_oficiales(file_bytes_io):
+    metas_dict = {}
+    textos_dict = {}
     try:
         io_copy = io.BytesIO(file_bytes_io.getvalue())
         xls = pd.ExcelFile(io_copy)
@@ -261,46 +263,52 @@ def cargar_metas_y_alcanzados_oficiales(file_bytes_io):
             io_copy2 = io.BytesIO(file_bytes_io.getvalue())
             df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
             
-            datos_actividades = []
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    # Columna N (índice 13) = Total general (Alcanzados), Columna O (índice 14) = Meta
-                    alcanzado_val = r.iloc[13] if len(r) > 13 else None
-                    meta_val = r.iloc[14] if len(r) > 14 else None
-                    
-                    if pd.notnull(alcanzado_val):
-                        try:
-                            a_int = int(float(alcanzado_val))
-                            m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
-                            pct = (a_int / m_int * 100) if m_int > 0 else 0.0
-                            
-                            sec = 'Protección'
-                            if 'R2' in fila_txt: sec = 'Salud'
-                            elif 'R3' in fila_txt: sec = 'Nutrición'
-                            elif 'R4' in fila_txt: sec = 'WASH'
-                            elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
-                            
-                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
-                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
-                            
-                            datos_actividades.append({
-                                'Sector': sec,
-                                'Codigo_Corto': codigo_corto,
-                                'Actividad_Completa': fila_txt.strip(),
-                                'Meta Proyecto': m_int,
-                                'Meta Socio': m_int,
-                                'Alcanzados': a_int,
-                                '% Avance Socio': round(pct, 1)
-                            })
-                        except:
-                            pass
-            return pd.DataFrame(datos_actividades)
+                    meta_val = r.iloc[14] if len(r) > 14 else 0
+                    m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
+                    if m_cod:
+                        codigo_corto = m_cod.group(1).upper()
+                        m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
+                        metas_dict[codigo_corto] = m_int
+                        textos_dict[codigo_corto] = fila_txt.strip()
     except Exception as e:
         pass
-    return pd.DataFrame()
+    return metas_dict, textos_dict
 
-df_reporte_act = cargar_metas_y_alcanzados_oficiales(excel_bytes)
+metas_oficiales, textos_oficiales = cargar_metas_oficiales(excel_bytes)
+
+# Calcular alcanzados dinámicamente desde df_filtered
+alcanzados_dinamicos = df_filtered.groupby('Actividad_Cod').size().to_dict()
+
+codigos_actividades = sorted(list(set(list(metas_oficiales.keys()) + list(alcanzados_dinamicos.keys()))))
+
+datos_dinamicos = []
+for cod in codigos_actividades:
+    if cod == 'OTRO':
+        continue
+    meta = metas_oficiales.get(cod, 0)
+    alcanzado = alcanzados_dinamicos.get(cod, 0)
+    pct = (alcanzado / meta * 100) if meta > 0 else 0.0
+    
+    act_completa = textos_oficiales.get(cod, f"Actividad {cod}")
+    sec = 'Protección'
+    if 'R2' in cod: sec = 'Salud'
+    elif 'R3' in cod: sec = 'Nutrición'
+    elif 'R4' in cod: sec = 'WASH'
+    elif 'R5' in cod: sec = 'Respuesta a Emergencia'
+    
+    datos_dinamicos.append({
+        'Sector': sec,
+        'Codigo_Corto': cod,
+        'Actividad_Completa': act_completa,
+        'Meta Socio': meta,
+        'Alcanzados': alcanzado,
+        '% Avance Socio': round(pct, 1)
+    })
+
+df_reporte_act = pd.DataFrame(datos_dinamicos)
 
 if not df_reporte_act.empty:
     df_reporte_act = df_reporte_act.sort_values(by='Meta Socio', ascending=True)
@@ -370,7 +378,7 @@ if not df_reporte_act.empty:
             'Alcanzados y Avance': COLOR_ROSADO_AAP  # Violeta / Rosado orquídea (#D89FE3)
         },
         height=520,
-        title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
+        title='Resultados por Actividad (Metas Oficiales vs Alcanzados - Filtrado)'
     )
 
     fig_act.update_traces(textposition='outside')
