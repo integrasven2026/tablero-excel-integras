@@ -104,11 +104,11 @@ COORDENADAS_MUNICIPIOS = {
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL
+# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL (AUTOMÁTICA Y OPCIONAL)
 # -----------------------------------------------------------------------------
 st.sidebar.header('Carga de Datos (Excel)')
 uploaded_file = st.sidebar.file_uploader(
-    "Sube el archivo Excel de reporte consolidado", 
+    "Sube un archivo Excel alternativo (Opcional)", 
     type=['xlsx', 'xls']
 )
 
@@ -123,13 +123,13 @@ def obtener_bytes_excel(file_or_path):
 
 if uploaded_file is not None:
     source_ref = uploaded_file
+    st.sidebar.success("📁 Usando archivo subido manualmente.")
 else:
     default_path = 'reporte_septimbre_indicadores_integras.xlsx'
     if os.path.exists(default_path):
         source_ref = default_path
-        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
     else:
-        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
+        st.error(f"❌ No se encontró el archivo predeterminado '{default_path}' en el repositorio.")
         st.stop()
 
 @st.cache_data
@@ -445,7 +445,7 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PUNTOS REDUCIDOS A LA MITAD)
+# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL
 # -----------------------------------------------------------------------------
 m1, m2 = st.columns([1, 1])
 
@@ -504,7 +504,7 @@ with m2:
             
             folium.CircleMarker(
                 location=coords,
-                radius=min(unicos * 0.75, 10) + 3,  # Reducido a la mitad exactamente
+                radius=min(unicos * 0.75, 10) + 3,  # Puntos reducidos a la mitad
                 popup=folium.Popup(popup_html, max_width=240),
                 color=COLOR_AGUAMARINA,
                 fill=True,
