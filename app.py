@@ -104,21 +104,33 @@ COORDENADAS_MUNICIPIOS = {
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA AUTOMÁTICA DESDE EL REPOSITORIO (SIN UPLOADER)
+# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL
 # -----------------------------------------------------------------------------
-default_path = 'reporte_septimbre_indicadores_integras.xlsx'
-if os.path.exists(default_path):
-    source_ref = default_path
-    st.sidebar.success("📁 Base de datos cargada automáticamente.")
-else:
-    st.error(f"❌ No se encontró el archivo predeterminado '{default_path}' en el repositorio de GitHub.")
-    st.stop()
+st.sidebar.header('Carga de Datos (Excel)')
+uploaded_file = st.sidebar.file_uploader(
+    "Sube el archivo Excel de reporte consolidado", 
+    type=['xlsx', 'xls']
+)
 
 def obtener_bytes_excel(file_or_path):
-    if isinstance(file_or_path, str) and os.path.exists(file_or_path):
+    if hasattr(file_or_path, 'read'):
+        file_or_path.seek(0)
+        return io.BytesIO(file_or_path.read())
+    elif isinstance(file_or_path, str) and os.path.exists(file_or_path):
         with open(file_or_path, 'rb') as f:
             return io.BytesIO(f.read())
     return None
+
+if uploaded_file is not None:
+    source_ref = uploaded_file
+else:
+    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
+    if os.path.exists(default_path):
+        source_ref = default_path
+        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
+    else:
+        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
+        st.stop()
 
 @st.cache_data
 def cargar_datos_crudos(file_bytes_io):
@@ -251,17 +263,15 @@ st.markdown('---')
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
 @st.cache_data
-def cargar_metas_y_alcanzados_filtrados(file_path_or_bytes, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
+def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
     try:
-        with open(file_path_or_bytes, 'rb') as f:
-            b_io = io.BytesIO(f.read())
-        xls = pd.ExcelFile(b_io)
+        io_copy = io.BytesIO(file_bytes_io.getvalue())
+        xls = pd.ExcelFile(io_copy)
         if 'Benef. x Actividad - Automatico' in xls.sheet_names:
-            with open(file_path_or_bytes, 'rb') as f:
-                b_io2 = io.BytesIO(f.read())
-            df_act_sheet = pd.read_excel(b_io2, sheet_name='Benef. x Actividad - Automatico', header=9)
+            io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+            df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
             
-            df_detalle = cargar_datos_crudos(obtener_bytes_excel(file_path_or_bytes))
+            df_detalle = cargar_datos_crudos(file_bytes_io)
             if org_seleccionada != 'Todos':
                 df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
             if estado_seleccionado != 'Todos':
@@ -313,7 +323,7 @@ def cargar_metas_y_alcanzados_filtrados(file_path_or_bytes, org_seleccionada, es
         pass
     return pd.DataFrame()
 
-df_reporte_act = cargar_metas_y_alcanzados_filtrados(source_ref, socio_sel, estado_sel, muni_sel, sector_sel)
+df_reporte_act = cargar_metas_y_alcanzados_filtrados(excel_bytes, socio_sel, estado_sel, muni_sel, sector_sel)
 
 if not df_reporte_act.empty:
     df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
@@ -435,7 +445,7 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL
+# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PUNTOS REDUCIDOS A LA MITAD)
 # -----------------------------------------------------------------------------
 m1, m2 = st.columns([1, 1])
 
@@ -494,7 +504,7 @@ with m2:
             
             folium.CircleMarker(
                 location=coords,
-                radius=min(unicos * 0.75, 10) + 3,
+                radius=min(unicos * 0.75, 10) + 3,  # Reducido a la mitad exactamente
                 popup=folium.Popup(popup_html, max_width=240),
                 color=COLOR_AGUAMARINA,
                 fill=True,
