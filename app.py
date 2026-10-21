@@ -1,12 +1,10 @@
 import io
 import os
 import re
-import folium
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit_folium import st_folium
 
 # -----------------------------------------------------------------------------
 # PALETA DE COLORES OFICIAL CONSORCIO INTEGRAS
@@ -84,21 +82,6 @@ with col_header_logo:
 st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 46122
-
-COORDENADAS_MUNICIPIOS = {
-    'Libertador': [10.5000, -66.9167],
-    'Caroní': [8.2833, -62.7167],
-    'Angostura del Orinoco': [7.5333, -63.8833],
-    'Pedernales': [9.9667, -62.2500],
-    'Tucupita': [9.0622, -62.0531],
-    'Paz Castillo': [10.2167, -66.6667],
-    'Sucre': [10.4833, -66.8167],
-    'Urdaneta': [10.1500, -66.8833],
-    'Arismendi': [10.7167, -62.5167],
-    'Bermudez': [10.6333, -63.2500],
-    'Cruz Salmeron Acosta': [10.6167, -64.2000],
-    'Vargas': [10.6000, -66.9333],
-}
 
 font_layout = dict(family='Quicksand', size=13)
 
@@ -446,63 +429,20 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. MUNICIPIOS ORDENADOS Y MAPA INTERACTIVO
+# 7. POBLACIÓN ÚNICA POR MUNICIPIO
 # -----------------------------------------------------------------------------
-m1, m2 = st.columns([1, 1])
-
-with m1:
-    st.subheader('Población Única por Municipio (Ordenado)')
-    if total_unicos > 0:
-        df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
-        df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
-        
-        fig_muni = px.bar(
-            df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
-            orientation='h', text='Participantes_Unicos', height=450,
-            color_discrete_sequence=PALETA_INTEGRAS
-        )
-        fig_muni.update_traces(textposition='outside')
-        fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
-        st.plotly_chart(fig_muni, width='stretch')
-
-with m2:
-    st.subheader('Mapa de Cobertura Territorial')
+st.subheader('Población Única por Municipio (Ordenado)')
+if total_unicos > 0:
+    df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
+    df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
     
-    mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='CartoDB positron')
-    
-    if total_unicos > 0:
-        muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(
-            Participantes_Unicos=('ID_Unico', 'nunique'),
-            Total_Servicios=('ID_Unico', 'count')
-        ).reset_index()
-        
-        for _, m_row in muni_mapa.iterrows():
-            est = m_row['Estado']
-            mun = m_row['Municipio']
-            unicos = m_row['Participantes_Unicos']
-            servicios = m_row['Total_Servicios']
-            
-            coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
-            
-            popup_html = f"""
-            <div style='font-family: Quicksand; font-size: 13px; width: 190px;'>
-                <h4 style='color: {COLOR_AGUAMARINA}; margin-bottom: 5px;'>{mun}</h4>
-                <b>Estado:</b> {est}<br>
-                <b>Participantes Únicos:</b> {unicos:,}<br>
-                <b>Total Servicios:</b> {servicios:,}
-            </div>
-            """
-            
-            folium.CircleMarker(
-                location=coords,
-                radius=min(unicos * 2, 22) + 6,
-                popup=folium.Popup(popup_html, max_width=220),
-                color=COLOR_AGUAMARINA,
-                fill=True,
-                fill_color=COLOR_AGUAMARINA,
-                fill_opacity=0.7,
-            ).add_to(mapa)
-            
-    st_folium(mapa, width=500, height=430)
+    fig_muni = px.bar(
+        df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
+        orientation='h', text='Participantes_Unicos', height=500,
+        color_discrete_sequence=PALETA_INTEGRAS
+    )
+    fig_muni.update_traces(textposition='outside')
+    fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
+    st.plotly_chart(fig_muni, width='stretch')
 
 st.markdown('---')
