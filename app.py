@@ -88,7 +88,7 @@ with col_header_logo:
 st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 34131
-META_PQRS_INTEGRAS = META_PARTICIPANTES_UNICOS * 0.05  # 5% Meta AAP
+META_5_PORCIENTO = META_PARTICIPANTES_UNICOS * 0.05
 
 COORDENADAS_MUNICIPIOS = {
     'Libertador': [10.5061, -66.9146],
@@ -122,20 +122,34 @@ MESES_ES = {
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA DE DATOS PRINCIPALES (EXCEL DESDE REPOSITORIO)
+# 2. CARGA DE DATOS DESDE EXCEL (CON OPCIÓN DE SUBIR ARCHIVO LOCAL O USAR EL DE GITHUB)
 # -----------------------------------------------------------------------------
-default_path = 'reporte_septimbre_indicadores_integras.xlsx'
-if os.path.exists(default_path):
-    source_ref = default_path
-else:
-    st.error(f"❌ No se encontró el archivo '{default_path}' en el repositorio.")
-    st.stop()
+st.sidebar.header('Carga de Datos (Excel)')
+uploaded_file = st.sidebar.file_uploader(
+    "Sube un archivo Excel alternativo (Opcional)", 
+    type=['xlsx', 'xls']
+)
 
 def obtener_bytes_excel(file_or_path):
-    if isinstance(file_or_path, str) and os.path.exists(file_or_path):
+    if hasattr(file_or_path, 'read'):
+        file_or_path.seek(0)
+        return io.BytesIO(file_or_path.read())
+    elif isinstance(file_or_path, str) and os.path.exists(file_or_path):
         with open(file_or_path, 'rb') as f:
             return io.BytesIO(f.read())
     return None
+
+if uploaded_file is not None:
+    source_ref = uploaded_file
+    st.sidebar.success("📁 Usando archivo subido manualmente.")
+else:
+    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
+    if os.path.exists(default_path):
+        source_ref = default_path
+        st.sidebar.success("📁 Base de datos cargada automáticamente.")
+    else:
+        st.error(f"❌ No se encontró el archivo predeterminado '{default_path}'.")
+        st.stop()
 
 @st.cache_data
 def cargar_datos_crudos(file_bytes_io):
@@ -214,19 +228,38 @@ excel_bytes = obtener_bytes_excel(source_ref)
 df_raw = cargar_datos_crudos(excel_bytes)
 
 # -----------------------------------------------------------------------------
-# 3. CARGA DE DATOS KOBOTOOLBOX (MÓDULO RENDICIÓN DE CUENTAS / AAP)
+# 3. FUNCIONES DE LIMPIEZA Y CARGA DE KOBOTOOLBOX (3 FORMULARIOS)
 # -----------------------------------------------------------------------------
 KOBO_TOKEN = '5618d295bdaac1c331e0395a3ac0699594c9664c'
 ASSET_ID_AAP = 'aRbFg8ig22Ts5JFFvsWNaE'
 ASSET_ID_SEGUIMIENTO = 'aav4FtiNC62seD5LAaJJJJ'
 ASSET_ID_IND_AAP = 'aMYumvwLQ4rQeq5iFDSboS'
 
+def calcular_etiquetas_con_porcentaje(serie_cantidades, total, decimales=1):
+    etiquetas = []
+    for x in serie_cantidades:
+        if total > 0:
+            pct = (x / total) * 100
+            etiquetas.append(f'{x} ({pct:.{decimales}f}%)')
+        else:
+            etiquetas.append(str(x))
+    return etiquetas
+
+def extraer_valor_booleano(diccionario_beneficiario, lista_posibles_claves):
+    val_afirmativos = ['sí', 'si', 'yes', '1', 's', 'true']
+    for clave in lista_posibles_claves:
+        for k_item, v_item in diccionario_beneficiario.items():
+            if clave.lower() in str(k_item).lower():
+                if str(v_item).lower().strip() in val_afirmativos or v_item == 1 or v_item is True:
+                    return 1
+    return 0
+
 def limpiar_canal(texto):
     if not texto or str(texto).lower() in ['none', 'null', '', 'nan', 'sin especificar']:
         return 'Buzón'
     t_low = str(texto).strip().lower()
     if 'buzon' in t_low: return 'Buzón'
-    elif 'telefon' in t_low or 'llamada' in t_low: return 'Línea Telefónica'
+    elif 'telefon' in t_low or 'llamada' in t_low or 'tlf' in t_low: return 'Línea Telefónica'
     elif 'whatsapp' in t_low or 'wsp' in t_low or 'mensaje' in t_low: return 'Mensaje de Texto / WhatsApp'
     elif 'cara' in t_low or 'presencial' in t_low: return 'Cara a Cara'
     elif 'correo' in t_low or 'email' in t_low: return 'Correo Electrónico'
@@ -241,6 +274,14 @@ def limpiar_estatus_caso(texto):
     elif 'cerrad' in t.lower() or 'atendid' in t.lower(): return 'Cerrado'
     return t
 
+def limpiar_satisfaccion(texto):
+    if not texto or str(texto).lower() in ['none', 'null', '', 'nan']: return 'Sin Especificar'
+    t_low = str(texto).replace('_', ' ').strip().lower()
+    if 'muy' in t_low and 'satisfech' in t_low: return 'Muy Satisfecho'
+    elif 'satisfech' in t_low: return 'Satisfecho'
+    elif 'insatisfech' in t_low: return 'Insatisfecho'
+    return t_low.title()
+
 @st.cache_data(ttl=3600)
 def cargar_datos_kobo(asset_id, token_aap):
     headers = {'Authorization': f'Token {token_aap}'}
@@ -253,41 +294,82 @@ def cargar_datos_kobo(asset_id, token_aap):
         return []
 
 @st.cache_data(ttl=3600)
-def cargar_y_filtrar_aap_integras(asset_aap, asset_seg, token):
-    data1 = cargar_datos_kobo(asset_aap, token)
-    data2 = cargar_datos_kobo(asset_seg, token)
+def cargar_todos_datos_aap(asset_id_aap, asset_id_seg, token_aap):
+    data1 = cargar_datos_kobo(asset_id_aap, token_aap)
+    data2 = cargar_datos_kobo(asset_id_seg, token_aap)
     
     all_raw = []
     for r in data1: r['_form_source'] = 'form1'; all_raw.append(r)
     for r in data2: r['_form_source'] = 'form2'; all_raw.append(r)
     
-    rows = []
+    if not all_raw: return pd.DataFrame()
+
+    aap_rows = []
     for r in all_raw:
-        # Filtrar estrictamente para que pertenezca o mencione a Íntegras o COOPI en el proyecto
-        proy_txt = str(r.get('proyecto', '') or r.get('Proyecto', '')).lower()
-        # Forzamos inclusión si es de Íntegras
-        rows.append({
-            'Canal': limpiar_canal(r.get('Mecanismo por el cual se recogió la retroalimentación')),
-            'Tipo_PQRS': str(r.get('Tipo_PQRS', 'Demanda de información')).title(),
+        canal_raw = r.get('Mecanismo por el cual se recogió la retroalimentación') or 'Buzón'
+        tipo_pqrs = str(r.get('Tipo_PQRS') or r.get('Categoría de la retroalimentación') or 'Demanda de Información').title()
+        
+        discapacidad = extraer_valor_booleano(r, ['discapacidad', 'pcd'])
+        indigena = extraer_valor_booleano(r, ['indigena', 'etnia'])
+        lgbtiq = extraer_valor_booleano(r, ['lgbtiq', 'lgbt'])
+        embarazada = extraer_valor_booleano(r, ['embarazada', 'lactante'])
+
+        sexo_raw = str(r.get('sexo') or r.get('Sexo') or '').lower().strip()
+        try: edad = float(r.get('edad') or r.get('Edad') or 0)
+        except: edad = 0
+
+        es_nina = 1 if (edad < 18 and sexo_raw in ['femenino', 'f', 'mujer']) else 0
+        es_nino = 1 if (edad < 18 and sexo_raw in ['masculino', 'm', 'hombre']) else 0
+        
+        estado_geo_val = r.get('Estado') or 'Distrito Capital'
+
+        aap_rows.append({
+            'Canal': limpiar_canal(canal_raw),
+            'Tipo_PQRS': tipo_pqrs,
             'Estado_Caso': limpiar_estatus_caso(r.get('estatus') or r.get('seguimiento')),
             'Fecha': r.get('_submission_time'),
-            'Estado_Geo': MAPA_ESTADOS.get(r.get('Estado'), 'Distrito Capital'),
-            'Proyecto': 'INTEGRAS'
+            'Discapacidad': discapacidad,
+            'Indigena': indigena,
+            'LGBTIQ': lgbtiq,
+            'Embarazada': embarazada,
+            'Es_Nina': es_nina,
+            'Es_Nino': es_nino,
+            'Proyecto': 'INTEGRAS',
+            'Estado_Geo': MAPA_ESTADOS.get(estado_geo_val, estado_geo_val),
         })
-    
-    df = pd.DataFrame(rows)
-    if not df.empty and 'Fecha' in df.columns:
-        df['Fecha_DT'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        df['Mes_Reporte'] = df['Fecha_DT'].apply(lambda x: f"{x.year} - {MESES_ES.get(x.month, '')}" if pd.notnull(x) else 'Sin Fecha')
+
+    df_aap = pd.DataFrame(aap_rows)
+    if not df_aap.empty and 'Fecha' in df_aap.columns:
+        df_aap['Fecha_DT'] = pd.to_datetime(df_aap['Fecha'], errors='coerce')
+        df_aap['Mes_Reporte'] = df_aap['Fecha_DT'].apply(lambda x: f"{x.year} - {MESES_ES.get(x.month, '')}" if pd.notnull(x) else 'Sin Fecha')
     else:
-        df['Mes_Reporte'] = 'Sin Fecha'
-    return df
+        df_aap['Mes_Reporte'] = 'Sin Fecha'
+    return df_aap
 
-df_aap_raw = cargar_y_filtrar_aap_integras(ASSET_ID_AAP, ASSET_ID_SEGUIMIENTO, KOBO_TOKEN)
+@st.cache_data(ttl=3600)
+def cargar_datos_indicadores_aap(asset_id_ind, token_ind):
+    headers = {'Authorization': f'Token {token_ind}'}
+    url = f'https://eu.kobotoolbox.org/api/v2/assets/{asset_id_ind}/data.json'
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200: return pd.DataFrame()
+        data = response.json().get('results', [])
+        if not data: return pd.DataFrame()
+        df_ind = pd.DataFrame(data)
+        sat_col = [c for c in df_ind.columns if 'satisfac' in c.lower()]
+        if sat_col:
+            df_ind[sat_col[0]] = df_ind[sat_col[0]].apply(limpiar_satisfaccion)
+        return df_ind
+    except Exception:
+        return pd.DataFrame()
+
+df_aap_raw = cargar_todos_datos_aap(ASSET_ID_AAP, ASSET_ID_SEGUIMIENTO, KOBO_TOKEN)
+df_eval_aap = cargar_datos_indicadores_aap(ASSET_ID_IND_AAP, KOBO_TOKEN)
 
 # -----------------------------------------------------------------------------
-# 4. FILTROS LATERALES
+# 4. FILTROS LATERALES GENERALES
 # -----------------------------------------------------------------------------
+st.sidebar.markdown('---')
 st.sidebar.header('Filtros de Consulta General')
 
 socios_disp = ['Todos'] + sorted([x for x in df_raw['ONG'].dropna().unique() if x != 'nan'])
@@ -316,7 +398,6 @@ if sector_sel != 'Todos': df_filtered = df_filtered[df_filtered['Sector'] == sec
 tab_principal, tab_aap = st.tabs(["📊 Tablero de Indicadores y Cobertura", "🗣️ Rendición de Cuentas y PQRS (Íntegras)"])
 
 with tab_principal:
-    # MÉTRICAS CLAVE
     total_servicios = len(df_filtered)
     df_unicos = df_filtered.drop_duplicates(subset=['ID_Unico'])
     total_unicos = len(df_unicos)
@@ -329,21 +410,18 @@ with tab_principal:
 
     st.markdown('---')
 
-    # SEGUIMIENTO DE ACTIVIDADES
     st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
     
     @st.cache_data
-    def cargar_metas_y_alcanzados_filtrados(file_path_or_bytes, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
+    def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
         try:
-            with open(file_path_or_bytes, 'rb') as f:
-                b_io = io.BytesIO(f.read())
-            xls = pd.ExcelFile(b_io)
+            io_copy = io.BytesIO(file_bytes_io.getvalue())
+            xls = pd.ExcelFile(io_copy)
             if 'Benef. x Actividad - Automatico' in xls.sheet_names:
-                with open(file_path_or_bytes, 'rb') as f:
-                    b_io2 = io.BytesIO(f.read())
-                df_act_sheet = pd.read_excel(b_io2, sheet_name='Benef. x Actividad - Automatico', header=9)
+                io_copy2 = io.BytesIO(file_bytes_io.getvalue())
+                df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
                 
-                df_detalle = cargar_datos_crudos(obtener_bytes_excel(file_path_or_bytes))
+                df_detalle = cargar_datos_crudos(file_bytes_io)
                 if org_seleccionada != 'Todos': df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
                 if estado_seleccionado != 'Todos': df_detalle = df_detalle[df_detalle['Estado'] == estado_seleccionado]
                 if muni_seleccionado != 'Todos': df_detalle = df_detalle[df_detalle['Municipio'] == muni_seleccionado]
@@ -385,7 +463,7 @@ with tab_principal:
         except Exception: pass
         return pd.DataFrame()
 
-    df_reporte_act = cargar_metas_y_alcanzados_filtrados(source_ref, socio_sel, estado_sel, muni_sel, sector_sel)
+    df_reporte_act = cargar_metas_y_alcanzados_filtrados(excel_bytes, socio_sel, estado_sel, muni_sel, sector_sel)
 
     if not df_reporte_act.empty:
         df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
@@ -425,7 +503,6 @@ with tab_principal:
 
     st.markdown('---')
 
-    # GRÁFICOS: TORTA Y SECTOR
     g1, g2 = st.columns(2)
     with g1:
         st.subheader('Desglose por Sexo y Rango Etario')
@@ -449,7 +526,6 @@ with tab_principal:
 
     st.markdown('---')
 
-    # MUNICIPIOS Y MAPA
     m1, m2 = st.columns([1, 1])
     with m1:
         st.subheader('Población Única por Municipio')
@@ -482,11 +558,11 @@ with tab_aap:
     st.subheader('🗣️ Módulo de Rendición de Cuentas y PQRS - Consorcio Íntegras')
     
     total_pqrs = len(df_aap_raw)
-    pct_cumplimiento_pqrs = (total_pqrs / META_PQRS_INTEGRAS) * 100 if META_PQRS_INTEGRAS > 0 else 0
+    pct_cumplimiento_pqrs = (total_pqrs / META_5_PORCIENTO) * 100
 
     ap1, ap2, ap3 = st.columns(3)
-    ap1.metric('Total PQRS Registradas (Íntegras)', f'{total_pqrs:,}')
-    ap2.metric('Meta AAP (5% de Participantes)', f'{int(META_PQRS_INTEGRAS):,}')
+    ap1.metric('Total PQRS Registradas', f'{total_pqrs:,}')
+    ap2.metric('Meta AAP (5% Participantes)', f'{int(META_5_PORCIENTO):,}')
     ap3.metric('% Cumplimiento Meta AAP', f'{pct_cumplimiento_pqrs:.2f}%')
 
     st.markdown('---')
@@ -501,7 +577,7 @@ with tab_aap:
             fig_c.update_traces(textinfo='percent+value')
             st.plotly_chart(fig_c, width='stretch')
         else:
-            st.info("Sin registros de canales para Íntegras.")
+            st.info("Sin registros de canales.")
 
     with p2:
         st.markdown('### Tipos de PQRS Recibidos')
@@ -512,3 +588,15 @@ with tab_aap:
             st.plotly_chart(fig_t, width='stretch')
         else:
             st.info("Sin registros de tipos de PQRS.")
+
+    st.markdown('---')
+    st.markdown('### Indicadores de Satisfacción y Conocimiento AAP')
+    if not df_eval_aap.empty:
+        sat_col = [c for c in df_eval_aap.columns if 'satisfac' in c.lower()]
+        if sat_col:
+            df_sat = df_eval_aap[sat_col[0]].value_counts().reset_index()
+            df_sat.columns = ['Nivel', 'Cantidad']
+            fig_sat = px.pie(df_sat, names='Nivel', values='Cantidad', hole=0.4, color_discrete_sequence=PALETA_INTEGRAS, title='Nivel de Satisfacción')
+            st.plotly_chart(fig_sat, width='stretch')
+    else:
+        st.info("Esperando registros del formulario de Indicadores AAP.")
