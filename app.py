@@ -1,10 +1,12 @@
 import io
 import os
 import re
+import folium
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_folium import st_folium
 
 # -----------------------------------------------------------------------------
 # PALETA DE COLORES OFICIAL CONSORCIO INTEGRAS
@@ -83,6 +85,22 @@ st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 34131
 
+COORDENADAS_MUNICIPIOS = {
+    'Libertador': [10.5061, -66.9146],
+    'Caroní': [8.3538, -62.6455],
+    'Caroni': [8.3538, -62.6455],
+    'Angostura del Orinoco': [8.1256, -63.5424],
+    'Pedernales': [9.9833, -62.2167],
+    'Tucupita': [9.0622, -62.0531],
+    'Paz Castillo': [10.2167, -66.6667],
+    'Sucre': [10.4806, -66.8036],
+    'Urdaneta': [10.1583, -66.8964],
+    'Arismendi': [10.7042, -63.1111],
+    'Bermudez': [10.6667, -63.2500],
+    'Cruz Salmeron Acosta': [10.5583, -64.2583],
+    'Vargas': [10.6027, -66.9325],
+}
+
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
@@ -143,6 +161,7 @@ def cargar_datos_crudos(file_bytes_io):
         c_ong = buscar_col(['organización', 'ong', 'socio'])
         c_estado = buscar_col(['estado'])
         c_muni = buscar_col(['municipio'])
+        c_parroquia = buscar_col(['parroquia'])
         c_sector = buscar_col(['resultado', 'sector'])
         
         c_act = None
@@ -160,6 +179,7 @@ def cargar_datos_crudos(file_bytes_io):
         df['ONG'] = df[c_ong].astype(str).str.upper().str.strip() if c_ong else 'COOPI'
         df['Estado'] = df[c_estado].astype(str).str.strip() if c_estado else 'Distrito Capital'
         df['Municipio'] = df[c_muni].astype(str).str.strip() if c_muni else 'Libertador'
+        df['Parroquia'] = df[c_parroquia].astype(str).str.strip() if c_parroquia else 'Sin Parroquia'
         df['Sector'] = df[c_sector].astype(str).str.strip() if c_sector else 'Protección'
         df['Actividad_Raw'] = df[c_act].astype(str).str.strip() if c_act else 'General'
         df['Sexo'] = df[c_sexo].astype(str).str.capitalize() if c_sexo else 'Otro'
@@ -238,7 +258,7 @@ col3.metric(f'% Alcance de la Meta ({META_PARTICIPANTES_UNICOS:,} pers.)'.replac
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES (COLUMNA N = ALCANZADOS, COLUMNA O = META)
+# 5. SEGUIMIENTO DE ACTIVIDADES
 # -----------------------------------------------------------------------------
 st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
 
@@ -267,17 +287,14 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    # Columna N (índice 13) = Total general (Alcanzados), Columna O (índice 14) = Meta
                     alcanzado_excel = r.iloc[13] if len(r) > 13 else 0
                     meta_val = r.iloc[14] if len(r) > 14 else 0
                     
                     try:
                         m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
-                        
                         m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
                         codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
                         
-                        # Si hay filtro de organización u otros, usamos el detalle filtrado; si es Consorcio General, usamos la columna N exacta del Excel
                         if org_seleccionada == 'Todos' and estado_seleccionado == 'Todos' and muni_seleccionado == 'Todos' and sector_seleccionado == 'Todos':
                             a_int = int(float(alcanzado_excel)) if pd.notnull(alcanzado_excel) else 0
                         else:
@@ -335,7 +352,6 @@ if not df_reporte_act.empty:
 
     st.markdown('<br>', unsafe_allow_html=True)
 
-    # PREPARACIÓN EN FORMATO LONG PARA PLOTLY
     df_melted = df_reporte_act.melt(
         id_vars=['Codigo_Corto', 'Actividad_Completa', '% Avance Socio'],
         value_vars=['Meta de la Actividad', 'Alcanzados y Avance'],
@@ -368,8 +384,8 @@ if not df_reporte_act.empty:
         hover_data={'Codigo_Corto': False, 'Valor': True, 'Actividad_Completa': True},
         category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
         color_discrete_map={
-            'Meta de la Actividad': '#08327D',  # Azul marino oficial
-            'Alcanzados y Avance': COLOR_ROSADO_AAP  # Violeta / Rosado orquídea (#D89FE3)
+            'Meta de la Actividad': '#08327D',
+            'Alcanzados y Avance': COLOR_ROSADO_AAP
         },
         height=520,
         title=f'Resultados por Actividad (Metas Oficiales vs Alcanzados) {f"| Organización: {socio_sel}" if socio_sel != "Todos" else "| Consorcio General"}'
@@ -429,20 +445,76 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. POBLACIÓN ÚNICA POR MUNICIPIO
+# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (CON RESULTADOS POR ACTIVIDAD)
 # -----------------------------------------------------------------------------
-st.subheader('Población Única por Municipio (Ordenado)')
-if total_unicos > 0:
-    df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
-    df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
+m1, m2 = st.columns([1, 1])
+
+with m1:
+    st.subheader('Población Única por Municipio (Ordenado)')
+    if total_unicos > 0:
+        df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
+        df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
+        
+        fig_muni = px.bar(
+            df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
+            orientation='h', text='Participantes_Unicos', height=450,
+            color_discrete_sequence=PALETA_INTEGRAS
+        )
+        fig_muni.update_traces(textposition='outside')
+        fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
+        st.plotly_chart(fig_muni, width='stretch')
+
+with m2:
+    st.subheader('Mapa de Cobertura y Resultados por Actividad')
     
-    fig_muni = px.bar(
-        df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
-        orientation='h', text='Participantes_Unicos', height=500,
-        color_discrete_sequence=PALETA_INTEGRAS
-    )
-    fig_muni.update_traces(textposition='outside')
-    fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
-    st.plotly_chart(fig_muni, width='stretch')
+    # Usamos OpenStreetMap por defecto para evitar errores de API Key
+    mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='OpenStreetMap')
+    
+    if total_unicos > 0:
+        # Agrupamos por Estado y Municipio
+        muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(
+            Participantes_Unicos=('ID_Unico', 'nunique'),
+            Total_Servicios=('ID_Unico', 'count')
+        ).reset_index()
+        
+        for _, m_row in muni_mapa.iterrows():
+            est = m_row['Estado']
+            mun = m_row['Municipio']
+            unicos = m_row['Participantes_Unicos']
+            servicios = m_row['Total_Servicios']
+            
+            coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
+            
+            # Obtenemos el desglose de actividades para este municipio
+            df_mun_acts = df_filtered[df_filtered['Municipio'] == mun]
+            acts_resumen = df_mun_acts.groupby(['Actividad_Cod']).size().reset_index(name='Cant')
+            
+            html_acts = ""
+            for _, act_r in acts_resumen.iterrows():
+                html_acts += f"• <b>{act_r['Actividad_Cod']}</b>: {act_r['Cant']:,} serv.<br>"
+            
+            popup_html = f"""
+            <div style='font-family: Quicksand; font-size: 12px; width: 220px; max-height: 200px; overflow-y: auto;'>
+                <h4 style='color: {COLOR_AGUAMARINA}; margin-bottom: 5px;'>{mun}</h4>
+                <b>Estado:</b> {est}<br>
+                <b>Participantes Únicos:</b> {unicos:,}<br>
+                <b>Total Servicios:</b> {servicios:,}<br>
+                <hr style='margin: 5px 0;'>
+                <b>Resultados por Actividad:</b><br>
+                {html_acts if html_acts else 'Sin registros'}
+            </div>
+            """
+            
+            folium.CircleMarker(
+                location=coords,
+                radius=min(unicos * 1.5, 20) + 6,
+                popup=folium.Popup(popup_html, max_width=240),
+                color=COLOR_AGUAMARINA,
+                fill=True,
+                fill_color=COLOR_AGUAMARINA,
+                fill_opacity=0.75,
+            ).add_to(mapa)
+            
+    st_folium(mapa, width=500, height=430)
 
 st.markdown('---')
