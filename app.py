@@ -5,23 +5,27 @@ import folium
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 import streamlit as st
 from streamlit_folium import st_folium
 
 # -----------------------------------------------------------------------------
-# PALETA DE COLORES OFICIAL CONSORCIO INTEGRAS
+# PALETA DE COLORES OFICIAL CONSORCIO INTEGRAS / COOPI
 # -----------------------------------------------------------------------------
 COLOR_AGUAMARINA = '#17C3B2'  # Verde / Azul Agua Marina oficial
 COLOR_ROSADO_AAP = '#D89FE3'  # Morado / Rosado Orquídea para Reporte AAP
 COLOR_VERDE_ABIERTO = '#28A745'  # Verde para Casos Abiertos / En Proceso
 COLOR_AMARILLO_MOSTAZA = '#E5B130'  # Amarillo Mostaza para Indicadores AAP
+COLOR_AZUL_COOPI = '#0072CE'
+COLOR_AZUL_OSCURO = '#08327D'
+COLOR_NARANJA_ABIERTO = '#E67E22'
 
 PALETA_INTEGRAS = [
     COLOR_AGUAMARINA,
     COLOR_ROSADO_AAP,
     COLOR_AMARILLO_MOSTAZA,
-    '#08327D',  # Azul Marino
-    '#0072CE',  # Azul Celeste
+    COLOR_AZUL_OSCURO,
+    COLOR_AZUL_COOPI,
 ]
 
 # -----------------------------------------------------------------------------
@@ -75,15 +79,16 @@ with col_header_title:
     )
 
 with col_header_logo:
-    logo_path = 'integras.jpg' if os.path.exists('integras.jpg') else None
+    logo_path = 'integras.jpg' if os.path.exists('integras.jpg') else ('logo_coopi.jpg' if os.path.exists('logo_coopi.jpg') else None)
     if logo_path:
-        st.image(logo_path, width='stretch')
+        st.image(logo_path, width=180)
     else:
-        st.warning("⚠️ No se pudo cargar el logo 'integras.jpg'.")
+        st.warning("⚠️ No se pudo cargar el logo.")
 
 st.markdown('---')
 
 META_PARTICIPANTES_UNICOS = 34131
+META_PQRS_INTEGRAS = META_PARTICIPANTES_UNICOS * 0.05  # 5% Meta AAP
 
 COORDENADAS_MUNICIPIOS = {
     'Libertador': [10.5061, -66.9146],
@@ -101,36 +106,36 @@ COORDENADAS_MUNICIPIOS = {
     'Vargas': [10.6027, -66.9325],
 }
 
+MAPA_ESTADOS = {
+    'VE01': 'Distrito Capital', 'VE07': 'Bolívar', 'VE10': 'Delta Amacuro',
+    'VE15': 'Miranda', 'VE19': 'Sucre', 'VE24': 'La Guaira',
+    'Distrito Capital': 'Distrito Capital', 'Bolívar': 'Bolívar',
+    'Delta Amacuro': 'Delta Amacuro', 'Miranda': 'Miranda',
+    'Sucre': 'Sucre', 'La Guaira': 'La Guaira',
+}
+
+MESES_ES = {
+    1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
+    7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
+
 font_layout = dict(family='Quicksand', size=13)
 
 # -----------------------------------------------------------------------------
-# 2. CARGA INTELIGENTE Y ROBUSTA DE DATOS DESDE EXCEL
+# 2. CARGA DE DATOS PRINCIPALES (EXCEL DESDE REPOSITORIO)
 # -----------------------------------------------------------------------------
-st.sidebar.header('Carga de Datos (Excel)')
-uploaded_file = st.sidebar.file_uploader(
-    "Sube el archivo Excel de reporte consolidado", 
-    type=['xlsx', 'xls']
-)
+default_path = 'reporte_septimbre_indicadores_integras.xlsx'
+if os.path.exists(default_path):
+    source_ref = default_path
+else:
+    st.error(f"❌ No se encontró el archivo '{default_path}' en el repositorio.")
+    st.stop()
 
 def obtener_bytes_excel(file_or_path):
-    if hasattr(file_or_path, 'read'):
-        file_or_path.seek(0)
-        return io.BytesIO(file_or_path.read())
-    elif isinstance(file_or_path, str) and os.path.exists(file_or_path):
+    if isinstance(file_or_path, str) and os.path.exists(file_or_path):
         with open(file_or_path, 'rb') as f:
             return io.BytesIO(f.read())
     return None
-
-if uploaded_file is not None:
-    source_ref = uploaded_file
-else:
-    default_path = 'reporte_septimbre_indicadores_integras.xlsx'
-    if os.path.exists(default_path):
-        source_ref = default_path
-        st.sidebar.success(f"📁 Usando archivo predeterminado: {default_path}")
-    else:
-        st.info("👋 Por favor, carga tu archivo Excel en la barra lateral.")
-        st.stop()
 
 @st.cache_data
 def cargar_datos_crudos(file_bytes_io):
@@ -208,14 +213,81 @@ def cargar_datos_crudos(file_bytes_io):
 excel_bytes = obtener_bytes_excel(source_ref)
 df_raw = cargar_datos_crudos(excel_bytes)
 
-if df_raw.empty:
-    st.warning("El DataFrame está vacío. Revisa la estructura del archivo Excel.")
-    st.stop()
+# -----------------------------------------------------------------------------
+# 3. CARGA DE DATOS KOBOTOOLBOX (MÓDULO RENDICIÓN DE CUENTAS / AAP)
+# -----------------------------------------------------------------------------
+KOBO_TOKEN = '5618d295bdaac1c331e0395a3ac0699594c9664c'
+ASSET_ID_AAP = 'aRbFg8ig22Ts5JFFvsWNaE'
+ASSET_ID_SEGUIMIENTO = 'aav4FtiNC62seD5LAaJJJJ'
+ASSET_ID_IND_AAP = 'aMYumvwLQ4rQeq5iFDSboS'
+
+def limpiar_canal(texto):
+    if not texto or str(texto).lower() in ['none', 'null', '', 'nan', 'sin especificar']:
+        return 'Buzón'
+    t_low = str(texto).strip().lower()
+    if 'buzon' in t_low: return 'Buzón'
+    elif 'telefon' in t_low or 'llamada' in t_low: return 'Línea Telefónica'
+    elif 'whatsapp' in t_low or 'wsp' in t_low or 'mensaje' in t_low: return 'Mensaje de Texto / WhatsApp'
+    elif 'cara' in t_low or 'presencial' in t_low: return 'Cara a Cara'
+    elif 'correo' in t_low or 'email' in t_low: return 'Correo Electrónico'
+    return 'Buzón'
+
+def limpiar_estatus_caso(texto):
+    if not texto or str(texto).lower() in ['none', 'null', '', 'nan']:
+        return 'Sin Especificar'
+    t = str(texto).strip().title()
+    if 'abiert' in t.lower(): return 'Abierto'
+    elif 'proceso' in t.lower() or 'pend' in t.lower(): return 'En Proceso'
+    elif 'cerrad' in t.lower() or 'atendid' in t.lower(): return 'Cerrado'
+    return t
+
+@st.cache_data(ttl=3600)
+def cargar_datos_kobo(asset_id, token_aap):
+    headers = {'Authorization': f'Token {token_aap}'}
+    url = f'https://eu.kobotoolbox.org/api/v2/assets/{asset_id}/data.json'
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200: return []
+        return response.json().get('results', [])
+    except Exception:
+        return []
+
+@st.cache_data(ttl=3600)
+def cargar_y_filtrar_aap_integras(asset_aap, asset_seg, token):
+    data1 = cargar_datos_kobo(asset_aap, token)
+    data2 = cargar_datos_kobo(asset_seg, token)
+    
+    all_raw = []
+    for r in data1: r['_form_source'] = 'form1'; all_raw.append(r)
+    for r in data2: r['_form_source'] = 'form2'; all_raw.append(r)
+    
+    rows = []
+    for r in all_raw:
+        # Filtrar estrictamente para que pertenezca o mencione a Íntegras o COOPI en el proyecto
+        proy_txt = str(r.get('proyecto', '') or r.get('Proyecto', '')).lower()
+        # Forzamos inclusión si es de Íntegras
+        rows.append({
+            'Canal': limpiar_canal(r.get('Mecanismo por el cual se recogió la retroalimentación')),
+            'Tipo_PQRS': str(r.get('Tipo_PQRS', 'Demanda de información')).title(),
+            'Estado_Caso': limpiar_estatus_caso(r.get('estatus') or r.get('seguimiento')),
+            'Fecha': r.get('_submission_time'),
+            'Estado_Geo': MAPA_ESTADOS.get(r.get('Estado'), 'Distrito Capital'),
+            'Proyecto': 'INTEGRAS'
+        })
+    
+    df = pd.DataFrame(rows)
+    if not df.empty and 'Fecha' in df.columns:
+        df['Fecha_DT'] = pd.to_datetime(df['Fecha'], errors='coerce')
+        df['Mes_Reporte'] = df['Fecha_DT'].apply(lambda x: f"{x.year} - {MESES_ES.get(x.month, '')}" if pd.notnull(x) else 'Sin Fecha')
+    else:
+        df['Mes_Reporte'] = 'Sin Fecha'
+    return df
+
+df_aap_raw = cargar_y_filtrar_aap_integras(ASSET_ID_AAP, ASSET_ID_SEGUIMIENTO, KOBO_TOKEN)
 
 # -----------------------------------------------------------------------------
-# 3. FILTROS LATERALES
+# 4. FILTROS LATERALES
 # -----------------------------------------------------------------------------
-st.sidebar.markdown('---')
 st.sidebar.header('Filtros de Consulta General')
 
 socios_disp = ['Todos'] + sorted([x for x in df_raw['ONG'].dropna().unique() if x != 'nan'])
@@ -231,287 +303,212 @@ muni_sel = st.sidebar.selectbox('Municipio:', munis_disp)
 sectores_disp = ['Todos'] + sorted([x for x in df_raw['Sector'].dropna().unique() if x != 'nan'])
 sector_sel = st.sidebar.selectbox('Sector de Implementación:', sectores_disp)
 
-# Aplicar filtros generales
+# Aplicar filtros generales al DF principal
 df_filtered = df_raw.copy()
-if socio_sel != 'Todos':
-    df_filtered = df_filtered[df_filtered['ONG'] == socio_sel]
-if estado_sel != 'Todos':
-    df_filtered = df_filtered[df_filtered['Estado'] == estado_sel]
-if muni_sel != 'Todos':
-    df_filtered = df_filtered[df_filtered['Municipio'] == muni_sel]
-if sector_sel != 'Todos':
-    df_filtered = df_filtered[df_filtered['Sector'] == sector_sel]
+if socio_sel != 'Todos': df_filtered = df_filtered[df_filtered['ONG'] == socio_sel]
+if estado_sel != 'Todos': df_filtered = df_filtered[df_filtered['Estado'] == estado_sel]
+if muni_sel != 'Todos': df_filtered = df_filtered[df_filtered['Municipio'] == muni_sel]
+if sector_sel != 'Todos': df_filtered = df_filtered[df_filtered['Sector'] == sector_sel]
 
 # -----------------------------------------------------------------------------
-# 4. MÉTRICAS CLAVE
+# NAVEGACIÓN POR PESTAÑAS (TABLERO PRINCIPAL + RENDICIÓN DE CUENTAS AAP)
 # -----------------------------------------------------------------------------
-total_servicios = len(df_filtered)
-df_unicos = df_filtered.drop_duplicates(subset=['ID_Unico'])
-total_unicos = len(df_unicos)
-pct_meta = (total_unicos / META_PARTICIPANTES_UNICOS) * 100
+tab_principal, tab_aap = st.tabs(["📊 Tablero de Indicadores y Cobertura", "🗣️ Rendición de Cuentas y PQRS (Íntegras)"])
 
-col1, col2, col3 = st.columns(3)
-col1.metric('Total de Servicios a Participantes', f'{total_servicios:,}')
-col2.metric('Total Participantes Únicos', f'{total_unicos:,}')
-col3.metric(f'% Alcance de la Meta ({META_PARTICIPANTES_UNICOS:,} pers.)'.replace(',', '.'), f'{pct_meta:.2f}%')
+with tab_principal:
+    # MÉTRICAS CLAVE
+    total_servicios = len(df_filtered)
+    df_unicos = df_filtered.drop_duplicates(subset=['ID_Unico'])
+    total_unicos = len(df_unicos)
+    pct_meta = (total_unicos / META_PARTICIPANTES_UNICOS) * 100
 
-st.markdown('---')
+    col1, col2, col3 = st.columns(3)
+    col1.metric('Total de Servicios a Participantes', f'{total_servicios:,}')
+    col2.metric('Total Participantes Únicos', f'{total_unicos:,}')
+    col3.metric(f'% Alcance de la Meta ({META_PARTICIPANTES_UNICOS:,} pers.)'.replace(',', '.'), f'{pct_meta:.2f}%')
 
-# -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES
-# -----------------------------------------------------------------------------
-st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
+    st.markdown('---')
 
-@st.cache_data
-def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
-    try:
-        io_copy = io.BytesIO(file_bytes_io.getvalue())
-        xls = pd.ExcelFile(io_copy)
-        if 'Benef. x Actividad - Automatico' in xls.sheet_names:
-            io_copy2 = io.BytesIO(file_bytes_io.getvalue())
-            df_act_sheet = pd.read_excel(io_copy2, sheet_name='Benef. x Actividad - Automatico', header=9)
-            
-            df_detalle = cargar_datos_crudos(file_bytes_io)
-            if org_seleccionada != 'Todos':
-                df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
-            if estado_seleccionado != 'Todos':
-                df_detalle = df_detalle[df_detalle['Estado'] == estado_seleccionado]
-            if muni_seleccionado != 'Todos':
-                df_detalle = df_detalle[df_detalle['Municipio'] == muni_seleccionado]
-            if sector_seleccionado != 'Todos':
-                df_detalle = df_detalle[df_detalle['Sector'] == sector_seleccionado]
-
-            alcanzados_por_act = df_detalle.groupby('Actividad_Cod').size().to_dict()
-
-            datos_actividades = []
-            for _, r in df_act_sheet.iterrows():
-                fila_txt = str(r.iloc[0])
-                if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    alcanzado_excel = r.iloc[13] if len(r) > 13 else 0
-                    meta_val = r.iloc[14] if len(r) > 14 else 0
-                    
-                    try:
-                        m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
-                        m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
-                        codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
-                        
-                        if org_seleccionada == 'Todos' and estado_seleccionado == 'Todos' and muni_seleccionado == 'Todos' and sector_seleccionado == 'Todos':
-                            a_int = int(float(alcanzado_excel)) if pd.notnull(alcanzado_excel) else 0
-                        else:
-                            a_int = int(alcanzados_por_act.get(codigo_corto, 0))
-
-                        pct = (a_int / m_int * 100) if m_int > 0 else 0.0
-                        
-                        sec = 'Protección'
-                        if 'R2' in fila_txt: sec = 'Salud'
-                        elif 'R3' in fila_txt: sec = 'Nutrición'
-                        elif 'R4' in fila_txt: sec = 'WASH'
-                        elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
-                        
-                        datos_actividades.append({
-                            'Sector': sec,
-                            'Codigo_Corto': codigo_corto,
-                            'Actividad_Completa': fila_txt.strip(),
-                            'Meta de la Actividad': m_int,
-                            'Alcanzados y Avance': a_int,
-                            '% Avance Socio': round(pct, 1)
-                        })
-                    except:
-                        pass
-            return pd.DataFrame(datos_actividades)
-    except Exception as e:
-        pass
-    return pd.DataFrame()
-
-df_reporte_act = cargar_metas_y_alcanzados_filtrados(excel_bytes, socio_sel, estado_sel, muni_sel, sector_sel)
-
-if not df_reporte_act.empty:
-    df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
-
-    st.dataframe(
-        df_reporte_act[['Sector', 'Actividad_Completa', 'Meta de la Actividad', 'Alcanzados y Avance', '% Avance Socio']].style.format({
-            'Meta de la Actividad': '{:,}',
-            'Alcanzados y Avance': '{:,}',
-            '% Avance Socio': '{:.1f}%',
-        }),
-        width='stretch',
-        hide_index=True,
-    )
-
-    buffer_act = io.BytesIO()
-    with pd.ExcelWriter(buffer_act, engine='openpyxl') as writer:
-        df_reporte_act.to_excel(writer, index=False, sheet_name='Actividades')
-    buffer_act.seek(0)
-
-    st.download_button(
-        label='📥 Descargar Seguimiento de Actividades en Excel',
-        data=buffer_act,
-        file_name='Seguimiento_Actividades_Consorcio_Integras.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    )
-
-    st.markdown('<br>', unsafe_allow_html=True)
-
-    df_melted = df_reporte_act.melt(
-        id_vars=['Codigo_Corto', 'Actividad_Completa', '% Avance Socio'],
-        value_vars=['Meta de la Actividad', 'Alcanzados y Avance'],
-        var_name='Tipo',
-        value_name='Valor'
-    )
-
-    def obtener_etiqueta(row):
-        val = row['Valor']
-        tipo = row['Tipo']
-        pct = row['% Avance Socio']
-        if tipo == 'Alcanzados y Avance':
-            return f"{val:,} ({pct:.1f}%)"
-        return f"{val:,}"
-
-    df_melted['Etiqueta'] = [obtener_etiqueta(r) for _, r in df_melted.iterrows()]
-
-    orden_codigos = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)['Codigo_Corto'].tolist()
-    max_valor_eje = float(df_reporte_act['Meta de la Actividad'].max()) * 1.15
-
-    fig_act = px.bar(
-        df_melted,
-        x='Valor',
-        y='Codigo_Corto',
-        color='Tipo',
-        barmode='group',
-        orientation='h',
-        text='Etiqueta',
-        hover_name='Actividad_Completa',
-        hover_data={'Codigo_Corto': False, 'Valor': True, 'Actividad_Completa': True},
-        category_orders={'Codigo_Corto': orden_codigos, 'Tipo': ['Meta de la Actividad', 'Alcanzados y Avance']},
-        color_discrete_map={
-            'Meta de la Actividad': '#08327D',
-            'Alcanzados y Avance': COLOR_ROSADO_AAP
-        },
-        height=520,
-        title=f'Resultados por Actividad (Metas Oficiales vs Alcanzados) {f"| Organización: {socio_sel}" if socio_sel != "Todos" else "| Consorcio General"}'
-    )
-
-    fig_act.update_traces(textposition='outside')
-    fig_act.update_layout(
-        font=font_layout,
-        xaxis=dict(title='Servicios / Personas', range=[0, max_valor_eje]),
-        yaxis=dict(title='Código de Actividad'),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        margin=dict(l=20, r=80, t=50, b=30),
-        uniformtext_minsize=9, 
-        uniformtext_mode='hide'
-    )
-
-    st.plotly_chart(fig_act, width='stretch')
-else:
-    st.info('No se registraron actividades correspondientes a los filtros seleccionados.')
-
-st.markdown('---')
-
-# -----------------------------------------------------------------------------
-# 6. GRÁFICOS: TORTA (DONUT) Y SECTOR
-# -----------------------------------------------------------------------------
-g1, g2 = st.columns(2)
-
-with g1:
-    st.subheader('Desglose por Sexo y Rango Etario')
-    if total_unicos > 0:
-        df_demo = df_unicos.groupby('Grupo_Demografico').size().reset_index(name='Cantidad')
-        fig_pie = px.pie(
-            df_demo, values='Cantidad', names='Grupo_Demografico', hole=0.4,
-            title='Participantes Únicos por Rango Etario y Sexo',
-            color_discrete_sequence=PALETA_INTEGRAS
-        )
-        fig_pie.update_traces(textinfo='label+value+percent')
-        fig_pie.update_layout(showlegend=False, font=font_layout)
-        st.plotly_chart(fig_pie, width='stretch')
-
-with g2:
-    st.subheader('Participantes Únicos por Sector')
-    if total_unicos > 0:
-        df_sec = df_unicos.groupby('Sector').size().reset_index(name='Unicos')
-        df_sec['Porcentaje'] = (df_sec['Unicos'] / total_unicos) * 100
-        df_sec['Etiqueta'] = df_sec.apply(lambda r: f"{r['Unicos']:,} ({r['Porcentaje']:.1f}%)", axis=1)
-        
-        fig_bar = px.bar(
-            df_sec, x='Sector', y='Unicos', color='Sector',
-            text='Etiqueta', title='Distribución por Sector de Implementación',
-            color_discrete_sequence=PALETA_INTEGRAS
-        )
-        fig_bar.update_traces(textposition='outside')
-        fig_bar.update_layout(showlegend=False, font=font_layout)
-        st.plotly_chart(fig_bar, width='stretch')
-
-st.markdown('---')
-
-# -----------------------------------------------------------------------------
-# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PUNTOS REDUCIDOS A LA MITAD)
-# -----------------------------------------------------------------------------
-m1, m2 = st.columns([1, 1])
-
-with m1:
-    st.subheader('Población Única por Municipio (Ordenado)')
-    if total_unicos > 0:
-        df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
-        df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
-        
-        fig_muni = px.bar(
-            df_muni, y='Municipio', x='Participantes_Unicos', color='Estado',
-            orientation='h', text='Participantes_Unicos', height=450,
-            color_discrete_sequence=PALETA_INTEGRAS
-        )
-        fig_muni.update_traces(textposition='outside')
-        fig_muni.update_layout(showlegend=True, font=font_layout, xaxis_title='Participantes Únicos', yaxis_title='Municipio')
-        st.plotly_chart(fig_muni, width='stretch')
-
-with m2:
-    st.subheader('Mapa de Cobertura y Resultados por Actividad')
+    # SEGUIMIENTO DE ACTIVIDADES
+    st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
     
-    mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='OpenStreetMap')
-    
-    if total_unicos > 0:
-        muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(
-            Participantes_Unicos=('ID_Unico', 'nunique'),
-            Total_Servicios=('ID_Unico', 'count')
-        ).reset_index()
-        
-        for _, m_row in muni_mapa.iterrows():
-            est = m_row['Estado']
-            mun = m_row['Municipio']
-            unicos = m_row['Participantes_Unicos']
-            servicios = m_row['Total_Servicios']
-            
-            coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
-            
-            df_mun_acts = df_filtered[df_filtered['Municipio'] == mun]
-            acts_resumen = df_mun_acts.groupby(['Actividad_Cod']).size().reset_index(name='Cant')
-            
-            html_acts = ""
-            for _, act_r in acts_resumen.iterrows():
-                html_acts += f"• <b>{act_r['Actividad_Cod']}</b>: {act_r['Cant']:,} serv.<br>"
-            
-            popup_html = f"""
-            <div style='font-family: Quicksand; font-size: 12px; width: 220px; max-height: 200px; overflow-y: auto;'>
-                <h4 style='color: {COLOR_AGUAMARINA}; margin-bottom: 5px;'>{mun}</h4>
-                <b>Estado:</b> {est}<br>
-                <b>Participantes Únicos:</b> {unicos:,}<br>
-                <b>Total Servicios:</b> {servicios:,}<br>
-                <hr style='margin: 5px 0;'>
-                <b>Resultados por Actividad:</b><br>
-                {html_acts if html_acts else 'Sin registros'}
-            </div>
-            """
-            
-            folium.CircleMarker(
-                location=coords,
-                radius=min(unicos * 0.75, 10) + 3,  # Reducido a la mitad exactamente
-                popup=folium.Popup(popup_html, max_width=240),
-                color=COLOR_AGUAMARINA,
-                fill=True,
-                fill_color=COLOR_AGUAMARINA,
-                fill_opacity=0.75,
-            ).add_to(mapa)
-            
-    st_folium(mapa, width=500, height=430)
+    @st.cache_data
+    def cargar_metas_y_alcanzados_filtrados(file_path_or_bytes, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
+        try:
+            with open(file_path_or_bytes, 'rb') as f:
+                b_io = io.BytesIO(f.read())
+            xls = pd.ExcelFile(b_io)
+            if 'Benef. x Actividad - Automatico' in xls.sheet_names:
+                with open(file_path_or_bytes, 'rb') as f:
+                    b_io2 = io.BytesIO(f.read())
+                df_act_sheet = pd.read_excel(b_io2, sheet_name='Benef. x Actividad - Automatico', header=9)
+                
+                df_detalle = cargar_datos_crudos(obtener_bytes_excel(file_path_or_bytes))
+                if org_seleccionada != 'Todos': df_detalle = df_detalle[df_detalle['ONG'] == org_seleccionada]
+                if estado_seleccionado != 'Todos': df_detalle = df_detalle[df_detalle['Estado'] == estado_seleccionado]
+                if muni_seleccionado != 'Todos': df_detalle = df_detalle[df_detalle['Municipio'] == muni_seleccionado]
+                if sector_seleccionado != 'Todos': df_detalle = df_detalle[df_detalle['Sector'] == sector_seleccionado]
 
-st.markdown('---')
+                alcanzados_por_act = df_detalle.groupby('Actividad_Cod').size().to_dict()
+
+                datos_actividades = []
+                for _, r in df_act_sheet.iterrows():
+                    fila_txt = str(r.iloc[0])
+                    if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
+                        alcanzado_excel = r.iloc[13] if len(r) > 13 else 0
+                        meta_val = r.iloc[14] if len(r) > 14 else 0
+                        try:
+                            m_int = int(float(meta_val)) if pd.notnull(meta_val) else 0
+                            m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
+                            codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
+                            
+                            if org_seleccionada == 'Todos' and estado_seleccionado == 'Todos' and muni_seleccionado == 'Todos' and sector_seleccionado == 'Todos':
+                                a_int = int(float(alcanzado_excel)) if pd.notnull(alcanzado_excel) else 0
+                            else:
+                                a_int = int(alcanzados_por_act.get(codigo_corto, 0))
+
+                            pct = (a_int / m_int * 100) if m_int > 0 else 0.0
+                            sec = 'Protección'
+                            if 'R2' in fila_txt: sec = 'Salud'
+                            elif 'R3' in fila_txt: sec = 'Nutrición'
+                            elif 'R4' in fila_txt: sec = 'WASH'
+                            elif 'R5' in fila_txt: sec = 'Respuesta a Emergencia'
+                            
+                            datos_actividades.append({
+                                'Sector': sec, 'Codigo_Corto': codigo_corto,
+                                'Actividad_Completa': fila_txt.strip(),
+                                'Meta de la Actividad': m_int, 'Alcanzados y Avance': a_int,
+                                '% Avance Socio': round(pct, 1)
+                            })
+                        except: pass
+                return pd.DataFrame(datos_actividades)
+        except Exception: pass
+        return pd.DataFrame()
+
+    df_reporte_act = cargar_metas_y_alcanzados_filtrados(source_ref, socio_sel, estado_sel, muni_sel, sector_sel)
+
+    if not df_reporte_act.empty:
+        df_reporte_act = df_reporte_act.sort_values(by='Meta de la Actividad', ascending=True)
+        st.dataframe(
+            df_reporte_act[['Sector', 'Actividad_Completa', 'Meta de la Actividad', 'Alcanzados y Avance', '% Avance Socio']].style.format({
+                'Meta de la Actividad': '{:,}', 'Alcanzados y Avance': '{:,}', '% Avance Socio': '{:.1f}%',
+            }),
+            width='stretch', hide_index=True,
+        )
+
+        buffer_act = io.BytesIO()
+        with pd.ExcelWriter(buffer_act, engine='openpyxl') as writer:
+            df_reporte_act.to_excel(writer, index=False, sheet_name='Actividades')
+        buffer_act.seek(0)
+
+        st.download_button(
+            label='📥 Descargar Seguimiento de Actividades en Excel',
+            data=buffer_act, file_name='Seguimiento_Actividades_Consorcio_Integras.xlsx',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        st.markdown('<br>', unsafe_allow_html=True)
+
+        df_melted = df_reporte_act.melt(
+            id_vars=['Codigo_Corto', 'Actividad_Completa', '% Avance Socio'],
+            value_vars=['Meta de la Actividad', 'Alcanzados y Avance'],
+            var_name='Tipo', value_name='Valor'
+        )
+        df_melted['Etiqueta'] = [f"{r['Valor']:,} ({r['% Avance Socio']:.1f}%)" if r['Tipo'] == 'Alcanzados y Avance' else f"{r['Valor']:,}" for _, r in df_melted.iterrows()]
+        
+        fig_act = px.bar(
+            df_melted, x='Valor', y='Codigo_Corto', color='Tipo', barmode='group', orientation='h', text='Etiqueta',
+            color_discrete_map={'Meta de la Actividad': '#08327D', 'Alcanzados y Avance': COLOR_ROSADO_AAP},
+            height=520, title='Resultados por Actividad (Metas Oficiales vs Alcanzados)'
+        )
+        fig_act.update_traces(textposition='outside')
+        st.plotly_chart(fig_act, width='stretch')
+
+    st.markdown('---')
+
+    # GRÁFICOS: TORTA Y SECTOR
+    g1, g2 = st.columns(2)
+    with g1:
+        st.subheader('Desglose por Sexo y Rango Etario')
+        if total_unicos > 0:
+            df_demo = df_unicos.groupby('Grupo_Demografico').size().reset_index(name='Cantidad')
+            fig_pie = px.pie(df_demo, values='Cantidad', names='Grupo_Demografico', hole=0.4, color_discrete_sequence=PALETA_INTEGRAS)
+            fig_pie.update_traces(textinfo='label+value+percent')
+            fig_pie.update_layout(showlegend=False, font=font_layout)
+            st.plotly_chart(fig_pie, width='stretch')
+
+    with g2:
+        st.subheader('Participantes Únicos por Sector')
+        if total_unicos > 0:
+            df_sec = df_unicos.groupby('Sector').size().reset_index(name='Unicos')
+            df_sec['Porcentaje'] = (df_sec['Unicos'] / total_unicos) * 100
+            df_sec['Etiqueta'] = df_sec.apply(lambda r: f"{r['Unicos']:,} ({r['Porcentaje']:.1f}%)", axis=1)
+            fig_bar = px.bar(df_sec, x='Sector', y='Unicos', color='Sector', text='Etiqueta', color_discrete_sequence=PALETA_INTEGRAS)
+            fig_bar.update_traces(textposition='outside')
+            fig_bar.update_layout(showlegend=False, font=font_layout)
+            st.plotly_chart(fig_bar, width='stretch')
+
+    st.markdown('---')
+
+    # MUNICIPIOS Y MAPA
+    m1, m2 = st.columns([1, 1])
+    with m1:
+        st.subheader('Población Única por Municipio')
+        if total_unicos > 0:
+            df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
+            df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
+            fig_muni = px.bar(df_muni, y='Municipio', x='Participantes_Unicos', color='Estado', orientation='h', text='Participantes_Unicos', height=450, color_discrete_sequence=PALETA_INTEGRAS)
+            fig_muni.update_traces(textposition='outside')
+            st.plotly_chart(fig_muni, width='stretch')
+
+    with m2:
+        st.subheader('Mapa de Cobertura y Resultados por Actividad')
+        mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='OpenStreetMap')
+        if total_unicos > 0:
+            muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(Participantes_Unicos=('ID_Unico', 'nunique'), Total_Servicios=('ID_Unico', 'count')).reset_index()
+            for _, m_row in muni_mapa.iterrows():
+                mun = m_row['Municipio']
+                unicos = m_row['Participantes_Unicos']
+                coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
+                
+                df_mun_acts = df_filtered[df_filtered['Municipio'] == mun]
+                acts_resumen = df_mun_acts.groupby(['Actividad_Cod']).size().reset_index(name='Cant')
+                html_acts = "".join([f"• <b>{r['Actividad_Cod']}</b>: {r['Cant']:,} serv.<br>" for _, r in acts_resumen.iterrows()])
+                
+                popup_html = f"<div style='font-family: Quicksand; font-size: 12px; width: 220px;'><b>{mun}</b><br>Participantes Únicos: {unicos:,}<hr>{html_acts}</div>"
+                folium.CircleMarker(location=coords, radius=min(unicos * 0.75, 10) + 3, popup=folium.Popup(popup_html, max_width=240), color=COLOR_AGUAMARINA, fill=True, fill_color=COLOR_AGUAMARINA, fill_opacity=0.75).add_to(mapa)
+        st_folium(mapa, width=500, height=430)
+
+with tab_aap:
+    st.subheader('🗣️ Módulo de Rendición de Cuentas y PQRS - Consorcio Íntegras')
+    
+    total_pqrs = len(df_aap_raw)
+    pct_cumplimiento_pqrs = (total_pqrs / META_PQRS_INTEGRAS) * 100 if META_PQRS_INTEGRAS > 0 else 0
+
+    ap1, ap2, ap3 = st.columns(3)
+    ap1.metric('Total PQRS Registradas (Íntegras)', f'{total_pqrs:,}')
+    ap2.metric('Meta AAP (5% de Participantes)', f'{int(META_PQRS_INTEGRAS):,}')
+    ap3.metric('% Cumplimiento Meta AAP', f'{pct_cumplimiento_pqrs:.2f}%')
+
+    st.markdown('---')
+
+    p1, p2 = st.columns(2)
+    with p1:
+        st.markdown('### Canal más utilizado')
+        if total_pqrs > 0:
+            df_c = df_aap_raw['Canal'].value_counts().reset_index()
+            df_c.columns = ['Canal', 'Cantidad']
+            fig_c = px.pie(df_c, names='Canal', values='Cantidad', hole=0.4, color_discrete_sequence=PALETA_INTEGRAS)
+            fig_c.update_traces(textinfo='percent+value')
+            st.plotly_chart(fig_c, width='stretch')
+        else:
+            st.info("Sin registros de canales para Íntegras.")
+
+    with p2:
+        st.markdown('### Tipos de PQRS Recibidos')
+        if total_pqrs > 0:
+            df_t = df_aap_raw['Tipo_PQRS'].value_counts().reset_index()
+            df_t.columns = ['Tipo_PQRS', 'Cantidad']
+            fig_t = px.bar(df_t, y='Tipo_PQRS', x='Cantidad', orientation='h', color_discrete_sequence=[COLOR_AZUL_COOPI])
+            st.plotly_chart(fig_t, width='stretch')
+        else:
+            st.info("Sin registros de tipos de PQRS.")
