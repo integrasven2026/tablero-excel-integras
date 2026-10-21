@@ -258,9 +258,9 @@ col3.metric(f'% Alcance de la Meta ({META_PARTICIPANTES_UNICOS:,} pers.)'.replac
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 5. SEGUIMIENTO DE ACTIVIDADES
+# 5. SEGUIMIENTO DE ACTIVIDADES (PARTICIPANTES ÚNICOS)
 # -----------------------------------------------------------------------------
-st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados)')
+st.subheader('Seguimiento de Actividades (Metas Oficiales vs Alcanzados Únicos)')
 
 @st.cache_data
 def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_seleccionado, muni_seleccionado, sector_seleccionado):
@@ -281,13 +281,13 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
             if sector_seleccionado != 'Todos':
                 df_detalle = df_detalle[df_detalle['Sector'] == sector_seleccionado]
 
-            alcanzados_por_act = df_detalle.groupby('Actividad_Cod').size().to_dict()
+            # CORRECCIÓN: Conteo de participantes únicos por actividad en lugar de .size() (servicios)
+            alcanzados_por_act = df_detalle.groupby('Actividad_Cod')['ID_Unico'].nunique().to_dict()
 
             datos_actividades = []
             for _, r in df_act_sheet.iterrows():
                 fila_txt = str(r.iloc[0])
                 if pd.notnull(fila_txt) and any(f'R{i}A' in fila_txt for i in range(1, 6)):
-                    alcanzado_excel = r.iloc[13] if len(r) > 13 else 0
                     meta_val = r.iloc[14] if len(r) > 14 else 0
                     
                     try:
@@ -295,11 +295,7 @@ def cargar_metas_y_alcanzados_filtrados(file_bytes_io, org_seleccionada, estado_
                         m_cod = re.search(r'(R\d+A\d+)', fila_txt, re.IGNORECASE)
                         codigo_corto = m_cod.group(1).upper() if m_cod else 'ACT'
                         
-                        if org_seleccionada == 'Todos' and estado_seleccionado == 'Todos' and muni_seleccionado == 'Todos' and sector_seleccionado == 'Todos':
-                            a_int = int(float(alcanzado_excel)) if pd.notnull(alcanzado_excel) else 0
-                        else:
-                            a_int = int(alcanzados_por_act.get(codigo_corto, 0))
-
+                        a_int = int(alcanzados_por_act.get(codigo_corto, 0))
                         pct = (a_int / m_int * 100) if m_int > 0 else 0.0
                         
                         sec = 'Protección'
@@ -388,13 +384,13 @@ if not df_reporte_act.empty:
             'Alcanzados y Avance': COLOR_ROSADO_AAP
         },
         height=520,
-        title=f'Resultados por Actividad (Metas Oficiales vs Alcanzados) {f"| Organización: {socio_sel}" if socio_sel != "Todos" else "| Consorcio General"}'
+        title=f'Resultados por Actividad (Metas Oficiales vs Participantes Únicos) {f"| Organización: {socio_sel}" if socio_sel != "Todos" else "| Consorcio General"}'
     )
 
     fig_act.update_traces(textposition='outside')
     fig_act.update_layout(
         font=font_layout,
-        xaxis=dict(title='Servicios / Personas', range=[0, max_valor_eje]),
+        xaxis=dict(title='Participantes Únicos', range=[0, max_valor_eje]),
         yaxis=dict(title='Código de Actividad'),
         legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
         margin=dict(l=20, r=80, t=50, b=30),
@@ -409,14 +405,15 @@ else:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 6. GRÁFICOS: TORTA (DONUT) Y SECTOR
+# 6. GRÁFICOS: TORTA (DONUT) Y SECTOR (ÚNICOS)
 # -----------------------------------------------------------------------------
 g1, g2 = st.columns(2)
 
 with g1:
     st.subheader('Desglose por Sexo y Rango Etario')
     if total_unicos > 0:
-        df_demo = df_unicos.groupby('Grupo_Demografico').size().reset_index(name='Cantidad')
+        # CORRECCIÓN: Conteo de únicos por grupo demográfico
+        df_demo = df_unicos.groupby('Grupo_Demografico')['ID_Unico'].nunique().reset_index(name='Cantidad')
         fig_pie = px.pie(
             df_demo, values='Cantidad', names='Grupo_Demografico', hole=0.4,
             title='Participantes Únicos por Rango Etario y Sexo',
@@ -429,7 +426,8 @@ with g1:
 with g2:
     st.subheader('Participantes Únicos por Sector')
     if total_unicos > 0:
-        df_sec = df_unicos.groupby('Sector').size().reset_index(name='Unicos')
+        # CORRECCIÓN: Conteo de únicos por sector
+        df_sec = df_unicos.groupby('Sector')['ID_Unico'].nunique().reset_index(name='Unicos')
         df_sec['Porcentaje'] = (df_sec['Unicos'] / total_unicos) * 100
         df_sec['Etiqueta'] = df_sec.apply(lambda r: f"{r['Unicos']:,} ({r['Porcentaje']:.1f}%)", axis=1)
         
@@ -445,14 +443,15 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PUNTOS REDUCIDOS A LA MITAD)
+# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PARTICIPANTES ÚNICOS)
 # -----------------------------------------------------------------------------
 m1, m2 = st.columns([1, 1])
 
 with m1:
     st.subheader('Población Única por Municipio (Ordenado)')
     if total_unicos > 0:
-        df_muni = df_unicos.groupby(['Estado', 'Municipio']).size().reset_index(name='Participantes_Unicos')
+        # CORRECCIÓN: Conteo de únicos por municipio
+        df_muni = df_unicos.groupby(['Estado', 'Municipio'])['ID_Unico'].nunique().reset_index(name='Participantes_Unicos')
         df_muni = df_muni.sort_values(by='Participantes_Unicos', ascending=True)
         
         fig_muni = px.bar(
@@ -484,11 +483,12 @@ with m2:
             coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
             
             df_mun_acts = df_filtered[df_filtered['Municipio'] == mun]
-            acts_resumen = df_mun_acts.groupby(['Actividad_Cod']).size().reset_index(name='Cant')
+            # CORRECCIÓN: Conteo de participantes únicos por actividad en cada municipio para el pop-up del mapa
+            acts_resumen = df_mun_acts.groupby(['Actividad_Cod'])['ID_Unico'].nunique().reset_index(name='Cant')
             
             html_acts = ""
             for _, act_r in acts_resumen.iterrows():
-                html_acts += f"• <b>{act_r['Actividad_Cod']}</b>: {act_r['Cant']:,} serv.<br>"
+                html_acts += f"• <b>{act_r['Actividad_Cod']}</b>: {act_r['Cant']:,} part. ún.<br>"
             
             popup_html = f"""
             <div style='font-family: Quicksand; font-size: 12px; width: 220px; max-height: 200px; overflow-y: auto;'>
@@ -497,7 +497,7 @@ with m2:
                 <b>Participantes Únicos:</b> {unicos:,}<br>
                 <b>Total Servicios:</b> {servicios:,}<br>
                 <hr style='margin: 5px 0;'>
-                <b>Resultados por Actividad:</b><br>
+                <b>Participantes Únicos por Act.:</b><br>
                 {html_acts if html_acts else 'Sin registros'}
             </div>
             """
