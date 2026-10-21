@@ -445,7 +445,7 @@ with g2:
 st.markdown('---')
 
 # -----------------------------------------------------------------------------
-# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (CON RESULTADOS POR ACTIVIDAD)
+# 7. MUNICIPIOS Y MAPA DE COBERTURA TERRITORIAL (PUNTOS REDUCIDOS A LA MITAD)
 # -----------------------------------------------------------------------------
 m1, m2 = st.columns([1, 1])
 
@@ -467,11 +467,9 @@ with m1:
 with m2:
     st.subheader('Mapa de Cobertura y Resultados por Actividad')
     
-    # Usamos OpenStreetMap por defecto para evitar errores de API Key
     mapa = folium.Map(location=[7.8, -65.5], zoom_start=6, tiles='OpenStreetMap')
     
     if total_unicos > 0:
-        # Agrupamos por Estado y Municipio
         muni_mapa = df_filtered.groupby(['Estado', 'Municipio']).agg(
             Participantes_Unicos=('ID_Unico', 'nunique'),
             Total_Servicios=('ID_Unico', 'count')
@@ -485,7 +483,6 @@ with m2:
             
             coords = COORDENADAS_MUNICIPIOS.get(mun, [7.8, -65.5])
             
-            # Obtenemos el desglose de actividades para este municipio
             df_mun_acts = df_filtered[df_filtered['Municipio'] == mun]
             acts_resumen = df_mun_acts.groupby(['Actividad_Cod']).size().reset_index(name='Cant')
             
@@ -507,7 +504,7 @@ with m2:
             
             folium.CircleMarker(
                 location=coords,
-                radius=min(unicos * 1.5, 20) + 6,
+                radius=min(unicos * 0.75, 10) + 3,  # Reducido a la mitad exactamente
                 popup=folium.Popup(popup_html, max_width=240),
                 color=COLOR_AGUAMARINA,
                 fill=True,
