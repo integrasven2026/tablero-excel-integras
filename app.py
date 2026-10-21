@@ -81,7 +81,7 @@ with col_header_logo:
 
 st.markdown('---')
 
-META_PARTICIPANTES_UNICOS = 46122
+META_PARTICIPANTES_UNICOS = 34131
 
 font_layout = dict(family='Quicksand', size=13)
 
@@ -233,7 +233,7 @@ pct_meta = (total_unicos / META_PARTICIPANTES_UNICOS) * 100
 col1, col2, col3 = st.columns(3)
 col1.metric('Total de Servicios a Participantes', f'{total_servicios:,}')
 col2.metric('Total Participantes Únicos', f'{total_unicos:,}')
-col3.metric('% Alcance de la Meta (46.122 pers.)', f'{pct_meta:.2f}%')
+col3.metric(f'% Alcance de la Meta ({META_PARTICIPANTES_UNICOS:,} pers.)'.replace(',', '.'), f'{pct_meta:.2f}%')
 
 st.markdown('---')
 
@@ -407,7 +407,6 @@ with g1:
             color_discrete_sequence=PALETA_INTEGRAS
         )
         fig_pie.update_traces(textinfo='label+value+percent')
-        # Leyenda desactivada para evitar confusión
         fig_pie.update_layout(showlegend=False, font=font_layout)
         st.plotly_chart(fig_pie, width='stretch')
 
