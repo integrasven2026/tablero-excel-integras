@@ -407,7 +407,8 @@ with g1:
             color_discrete_sequence=PALETA_INTEGRAS
         )
         fig_pie.update_traces(textinfo='label+value+percent')
-        fig_pie.update_layout(showlegend=True, font=font_layout)
+        # Leyenda desactivada para evitar confusión
+        fig_pie.update_layout(showlegend=False, font=font_layout)
         st.plotly_chart(fig_pie, width='stretch')
 
 with g2:
